@@ -144,7 +144,7 @@ class RequestCreate(Strict, CalendarChecked):
 
 class AssistantInput(Strict):
     message: str = Field(min_length=1, max_length=2000)
-    vehicle_id: str | None = None
+    vehicle_id: str | None = Field(default=None, max_length=36)
     postal_code: str | None = Field(default=None, max_length=30)
     specialty: Literal["pdr", "collision", "maintenance", "mechanical"] | None = None
     mobile_only: bool = False

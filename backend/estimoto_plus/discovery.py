@@ -264,7 +264,7 @@ def search(db, request, customer, postal, vehicle=None, specialty=None, mobile_o
 
 @router.get('')
 def discovery(request: Request, postal_code: str | None = Query(default=None, max_length=30), radius_miles: int = Query(default=30, ge=30, le=30),
-              vehicle_id: str | None = None, specialty: Specialty | None = None, mobile_only: bool = False,
+              vehicle_id: str | None = Query(default=None, max_length=36), specialty: Specialty | None = None, mobile_only: bool = False,
               q: str = Query(default='', max_length=120), make_only: bool = False,
               c: Customer = Depends(current_customer), db: Session = Depends(db_session)):
     vehicle = owned_vehicle(db, vehicle_id, c.id)
@@ -294,7 +294,7 @@ def favorite_view(row):
 
 
 @router.get('/favorites')
-def favorites(vehicle_id: str, c: Customer = Depends(current_customer), db: Session = Depends(db_session)):
+def favorites(vehicle_id: str = Query(max_length=36), c: Customer = Depends(current_customer), db: Session = Depends(db_session)):
     owned_vehicle(db, vehicle_id, c.id)
     return [favorite_view(r) for r in db.scalars(select(DedicatedShop).where(DedicatedShop.customer_id == c.id,
             DedicatedShop.vehicle_id == vehicle_id).order_by(DedicatedShop.specialty)).all()]
@@ -335,7 +335,7 @@ def set_favorite(specialty: Specialty, body: FavoriteWrite, request: Request, c:
 
 
 @router.delete('/favorites/{specialty}')
-def clear_favorite(specialty: Specialty, vehicle_id: str, c: Customer = Depends(current_customer), db: Session = Depends(db_session)):
+def clear_favorite(specialty: Specialty, vehicle_id: str = Query(max_length=36), c: Customer = Depends(current_customer), db: Session = Depends(db_session)):
     lock_customer(db, c.id)
     owned_vehicle(db, vehicle_id, c.id)
     row = db.get(DedicatedShop, (c.id, vehicle_id, specialty))

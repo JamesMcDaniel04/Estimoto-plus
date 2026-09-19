@@ -19,6 +19,7 @@ from .auth import current_customer, db_session
 from .assistant_model import enhance_advice
 from .graph import history_question, retrieve_history, history_answer
 from .graph_models import KnowledgeRecord
+from .notifications import unread_count
 from .models import Customer, Estimate, EstimateOutbox, Outbox, Photo, Provider, RateBucket, Reminder, Repair, RequestEvent, RequestRejection, ServiceRequest, Vehicle, now, uid
 from .postal import canonical_zip
 from .schemas import AssistantInput, EstimateCreate, EstimateSubmit, ProfileWrite, ReminderCreate, ReminderUpdate, EstimateUpdate, RequestCreate, VehicleCreate, VehicleUpdate
@@ -150,6 +151,7 @@ def bootstrap(request: Request, c: Customer = Depends(current_customer), db: Ses
             "repairs": [repair_view(r) for r in db.scalars(select(Repair).where(Repair.customer_id == ids)).all()],
             "requests": [request_view(db, r) for r in db.scalars(select(ServiceRequest).where(ServiceRequest.customer_id == ids)).all()],
             "reminders": [reminder_view(r) for r in db.scalars(select(Reminder).where(Reminder.customer_id == ids)).all()],
+            "unread_notifications": unread_count(db, ids),
             "capabilities": {"live_requests": bool(request.app.state.settings.bridge_url and request.app.state.settings.bridge_key and not c.demo),
                              "live_discovery": bool(request.app.state.settings.discovery_enabled and not c.demo),
                              "live_estimates": bool(request.app.state.settings.estimate_bridge_url and request.app.state.settings.bridge_key and not c.demo),

@@ -470,6 +470,8 @@ def _confirm_shop_slot(db, settings, transport, token, slot):
         record.status = "confirmed"
         record.confirmed_slot = slot
         record.updated_at = now()
+        from .notifications import notify_shop_confirmed
+        notify_shop_confirmed(db, record)
         db.commit()
     return HTMLResponse("<!doctype html><html><body><h1>Time confirmed</h1><p>The customer can now see the confirmed time.</p></body></html>",
                         headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})

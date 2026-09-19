@@ -141,12 +141,15 @@ def finalize_estimate(session_factory, outbox_id, token, estimate_id, phase, res
             estimate.processing_error = None
             item.next_attempt_at = current
         elif phase != "create" and success:
+            previous_status, previous_amount = estimate.status, estimate.amount_cents
             try:
                 apply_submitted_snapshot(db, estimate, result, item.payload)
             except ValueError:
                 success = False
             else:
                 estimate.updated_at = current
+                from .notifications import notify_estimate_change
+                notify_estimate_change(db, estimate, previous_status, previous_amount)
                 item.next_attempt_at = current + timedelta(seconds=300 if estimate.processing_state == "complete" else 15)
                 if estimate.status == "approved" or estimate.processing_state == "failed":
                     item.finished_at = current

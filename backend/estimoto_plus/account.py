@@ -25,6 +25,7 @@ from .capture_models import CaptureReceipt, CaptureVinSuggestion
 from .discovery_models import DedicatedShop
 from .graph_models import (GraphEdge, GraphEntity, KnowledgeConsentEvent, KnowledgeDeletion, KnowledgePreference,
                            KnowledgeReceipt, KnowledgeRecord)
+from .notification_models import Notification
 from .models import (Customer, Estimate, EstimateOutbox, Outbox, Photo, RateBucket, Reminder, Repair, RequestEvent,
                      RequestRejection, ServiceRequest, Vehicle, now)
 from .shop_models import MyShop, ShopOutbox, ShopOutreach
@@ -52,6 +53,7 @@ def export_account(c: Customer = Depends(current_customer), db: Session = Depend
     from .graph import POLICY_VERSION, record_view
     from .saved_shops import _outreach_view, _shop_view
     from .vehicle_valuation import history_view
+    from .notifications import notification_view
     consume_rate(db, c.id, "account_export", MAX_EXPORTS_PER_HOUR)
     db.commit()
     ids = c.id
@@ -92,6 +94,8 @@ def export_account(c: Customer = Depends(current_customer), db: Session = Depend
         "dedicated_shops": [favorite_view(f) for f in rows(DedicatedShop, DedicatedShop.vehicle_id, DedicatedShop.specialty)],
         "vehicle_valuations": [{"vehicle_id": h.vehicle_id, **history_view(h)}
                                for h in rows(VehicleValuationHistory, VehicleValuationHistory.created_at)],
+        "notifications": {"email_updates": bool(c.notification_emails),
+                          "items": [notification_view(n) for n in rows(Notification, Notification.created_at, Notification.id)]},
         "calendar": {"status": calendar.status if calendar else "disconnected",
                      "selected_calendar_ids": calendar.selected_calendar_ids if calendar else [],
                      "time_zone": calendar.time_zone if calendar else ""},
@@ -180,6 +184,7 @@ def erase_customer(db, customer_id):
         delete(ServiceRequest).where(ServiceRequest.customer_id == customer_id),
         delete(RequestRejection).where(RequestRejection.customer_id == customer_id),
         delete(Repair).where(Repair.customer_id == customer_id),
+        delete(Notification).where(Notification.customer_id == customer_id),
         delete(Reminder).where(Reminder.customer_id == customer_id),
         delete(GraphEdge).where(GraphEdge.customer_id == customer_id),
         delete(GraphEntity).where(GraphEntity.customer_id == customer_id),

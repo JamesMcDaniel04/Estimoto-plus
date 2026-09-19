@@ -6,6 +6,8 @@ remain immutable; a stale CDN pointer still resolves the build it describes.
 
 import json
 import re
+import threading
+import time
 from uuid import uuid4
 
 import httpx
@@ -19,6 +21,21 @@ CERTIFICATE_SHA256 = "e6d106fccc6c0e77e04a46c64f8edffdafb11b502d4857e51606c72508
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
 _VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+\Z")
 _MAX_MANIFEST_BYTES = 4096
+CURRENT_CACHE_SECONDS = 60
+# Single-entry cache of the last *successful* pointer lookup so anonymous
+# hits do not amplify egress: (url, expires_at, manifest). Failures never land here.
+_cache_lock = threading.Lock()
+_cache: tuple[str, float, dict] | None = None
+
+
+def clock() -> float:
+    return time.monotonic()
+
+
+def clear_current_cache() -> None:
+    global _cache
+    with _cache_lock:
+        _cache = None
 
 
 def validate_manifest(value: object) -> dict:
@@ -52,9 +69,14 @@ def public_object_url(supabase_url: str, path: str) -> str:
 
 
 def current_manifest(request: Request) -> dict:
+    global _cache
     settings = request.app.state.settings
     try:
         url = public_object_url(settings.supabase_url, "current.json")
+        with _cache_lock:
+            cached = _cache
+        if cached and cached[0] == url and clock() < cached[1]:
+            return dict(cached[2])
         transport = getattr(request.app.state, "android_transport", None)
         with httpx.Client(transport=transport, timeout=5, follow_redirects=False) as client:
             with client.stream("GET", url, params={"cacheNonce": uuid4().hex},
@@ -66,9 +88,12 @@ def current_manifest(request: Request) -> dict:
                     if size > _MAX_MANIFEST_BYTES:
                         raise ValueError("Android release pointer too large")
                     chunks.append(chunk)
-        return validate_manifest(json.loads(b"".join(chunks)))
+        manifest = validate_manifest(json.loads(b"".join(chunks)))
     except (httpx.HTTPError, ValueError, json.JSONDecodeError, KeyError) as exc:
         raise HTTPException(503, "Android download is temporarily unavailable.") from exc
+    with _cache_lock:
+        _cache = (url, clock() + CURRENT_CACHE_SECONDS, manifest)
+    return dict(manifest)
 
 
 @router.get("/android/current")

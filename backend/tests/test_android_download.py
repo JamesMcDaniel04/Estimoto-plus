@@ -5,7 +5,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from estimoto_plus.android_download import router
+from estimoto_plus import android_download
+from estimoto_plus.android_download import router, clear_current_cache
 from scripts.publish_android_current import publish_pointer, verify_remote_apk
 
 
@@ -20,6 +21,13 @@ MANIFEST = {
     "certificate_sha256": CERT,
     "asset_url": "https://github.com/JamesMcDaniel04/Estimoto-/releases/download/v0.1.0-beta.5/estimoto-plus-0.1.0-5.apk",
 }
+
+
+@pytest.fixture(autouse=True)
+def fresh_pointer_cache():
+    clear_current_cache()
+    yield
+    clear_current_cache()
 
 
 def client_for(responder):
@@ -39,7 +47,9 @@ def test_public_download_uses_fresh_remote_pointer_without_login():
 
     with client_for(respond) as client:
         one = client.get("/android/download", follow_redirects=False)
+        clear_current_cache()
         two = client.get("/android/download", follow_redirects=False)
+        clear_current_cache()
         current = client.get("/android/current")
     assert one.status_code == two.status_code == 307
     assert one.headers["location"] == MANIFEST["asset_url"]
@@ -49,6 +59,44 @@ def test_public_download_uses_fresh_remote_pointer_without_login():
     assert current.json()["sha256"] == SHA
     assert len({str(request.url) for request in seen}) == 3, "each lookup bypasses CDN cache"
     assert all("cacheNonce=" in str(request.url) for request in seen)
+
+
+def test_repeated_anonymous_lookups_reuse_cached_pointer_until_ttl(monkeypatch):
+    seen = []
+    now = [1_000.0]
+    monkeypatch.setattr(android_download, "clock", lambda: now[0])
+
+    def respond(request):
+        seen.append(request)
+        return httpx.Response(200, json=MANIFEST)
+
+    with client_for(respond) as client:
+        first = client.get("/android/current")
+        now[0] += 59
+        second = client.get("/android/download", follow_redirects=False)
+        assert first.status_code == 200 and second.status_code == 307
+        assert len(seen) == 1, "second hit inside the TTL is served from the cache"
+        assert second.headers["location"] == MANIFEST["asset_url"]
+        now[0] += 2  # past the 60 second TTL
+        third = client.get("/android/current")
+        assert third.status_code == 200 and third.json()["sha256"] == SHA
+        assert len(seen) == 2, "expired cache triggers a fresh outbound fetch"
+        fourth = client.get("/android/current")
+        assert fourth.status_code == 200
+        assert len(seen) == 2
+
+
+def test_failed_pointer_lookup_is_not_cached():
+    responses = [httpx.Response(404), httpx.Response(200, json=MANIFEST)]
+
+    def respond(_request):
+        return responses.pop(0)
+
+    with client_for(respond) as client:
+        assert client.get("/android/download", follow_redirects=False).status_code == 503
+        recovered = client.get("/android/download", follow_redirects=False)
+    assert recovered.status_code == 307
+    assert responses == []
 
 
 def test_missing_or_bad_pointer_fails_closed_without_redirect():

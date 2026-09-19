@@ -24,9 +24,13 @@ from .delivery import deliver_batch
 from .estimate_delivery import deliver_estimate_batch
 from .models import Base, Customer, Provider, RateBucket, Vehicle, now
 from . import shop_models  # register private saved-shop tables before test metadata creation
+from . import notification_models  # noqa: F401  register notification and client error tables
+from .notifications import router as notifications_router, deliver_notification_emails, scan_due_reminders, MAIL_ENDPOINT
+from .client_errors import router as client_errors_router, prune_client_errors
 from .saved_shops import router as saved_shops_router, deliver_shop_batch
 from .graph import router as graph_router
 from .upload_limit import PhotoBodyLimit
+from .abuse_guard import AbuseGuard
 from .vehicle_images import router as vehicle_images_router
 from .android_download import router as android_download_router
 from .calendar_routes import router as calendar_router
@@ -40,7 +44,7 @@ from .shop_media_catalog import router as shop_media_router
 
 # Readiness fails closed until the database carries exactly this migration.
 # tests/test_readiness.py keeps it equal to the Alembic head.
-EXPECTED_SCHEMA_REVISION = "d9e4b82013c7"
+EXPECTED_SCHEMA_REVISION = "a4c1e7b9d2f0"
 RATE_BUCKET_RETENTION_HOURS = 48
 
 
@@ -93,6 +97,8 @@ def create_app(settings: Settings | None = None, *, auth_verifier=None, auth_cli
                     if provider_ticks >= 300:
                         await asyncio.to_thread(sync_providers, settings, app.state.bridge_transport, app.state.session_factory)
                         await asyncio.to_thread(prune_rate_buckets, app.state.session_factory)
+                        await asyncio.to_thread(prune_client_errors, app.state.session_factory)
+                        await asyncio.to_thread(scan_due_reminders, app.state.session_factory)
                         provider_ticks = 0
                     await asyncio.to_thread(deliver_batch, settings, app.state.bridge_transport, app.state.session_factory)
                     await asyncio.to_thread(sync_request_statuses, settings, app.state.bridge_transport, app.state.session_factory)
@@ -102,6 +108,10 @@ def create_app(settings: Settings | None = None, *, auth_verifier=None, auth_cli
                                             getattr(app.state, "shop_mail_transport", None),
                                             calendar_settings=settings, calendar_transport=app.state.calendar_transport)
                     await asyncio.to_thread(sync_calendar_batch, settings, app.state.session_factory, app.state.calendar_transport)
+                    await asyncio.to_thread(deliver_notification_emails, app.state.session_factory,
+                                            getattr(app.state, "shop_mail_transport", None),
+                                            api_url=(MAIL_ENDPOINT if settings.environment == "production"
+                                                     else os.getenv("RESEND_API_URL", MAIL_ENDPOINT)))
                 except Exception as exc:
                     logging.getLogger(__name__).error("Plus background worker cycle failed: %s", type(exc).__name__)
         enabled = settings.worker_enabled if settings.worker_enabled is not None else settings.environment == "production"
@@ -147,6 +157,7 @@ def create_app(settings: Settings | None = None, *, auth_verifier=None, auth_cli
         return response
 
     app.add_middleware(PhotoBodyLimit)
+    app.add_middleware(AbuseGuard, auth_failure_limit=60, public_limit=30, window_seconds=60, max_entries=10_000)
     if origins:
         app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=False,
                            allow_methods=["GET", "POST", "PUT", "DELETE"],
@@ -200,6 +211,8 @@ def create_app(settings: Settings | None = None, *, auth_verifier=None, auth_cli
     app.state.discovery_transport = None
     app.include_router(customer_router)
     app.include_router(account_router)
+    app.include_router(notifications_router)
+    app.include_router(client_errors_router)
     app.include_router(bridge_router)
     app.include_router(saved_shops_router)
     app.include_router(graph_router)

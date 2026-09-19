@@ -172,6 +172,22 @@ def test_public_cache_shared_and_stale_is_explicit(clients):
     assert data['status'] == 'stale' and data['providers']
 
 
+def test_overlong_vehicle_id_is_rejected_before_any_lookup(clients, monkeypatch):
+    from estimoto_plus import discovery, customer_routes
+    client, _ = clients
+    create_vehicle(client)
+
+    def never(*_args, **_kwargs):
+        raise AssertionError('vehicle lookup must not run for an over-long vehicle_id')
+    monkeypatch.setattr(discovery, 'owned_vehicle', never)
+    monkeypatch.setattr(customer_routes, 'owned', never)
+    too_long = 'v' * 37
+    assert client.get('/v1/discovery', headers=h('alice'), params={'vehicle_id': too_long}).status_code == 422
+    assert client.get('/v1/discovery/favorites', headers=h('alice'), params={'vehicle_id': too_long}).status_code == 422
+    assert client.delete('/v1/discovery/favorites/pdr', headers=h('alice'), params={'vehicle_id': too_long}).status_code == 422
+    assert client.post('/v1/assistant', headers=h('alice'), json={'message': 'hello', 'vehicle_id': too_long}).status_code == 422
+
+
 def test_favorites_private_idempotent_and_source_validated(clients):
     client, _ = clients
     vehicle, _ = setup(client)

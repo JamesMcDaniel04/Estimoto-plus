@@ -91,6 +91,8 @@ def inbound_event(request_id: str, body: RequestInboundEvent, db: Session = Depe
         raise HTTPException(409, "Invalid status transition.")
     db.add(RequestEvent(request_id=request_id, event_id=body.event_id, status=body.status,
                         message=body.message, scheduled_at=scheduled_at_text))
+    from .notifications import notify_request_event
+    notify_request_event(db, r, body.status, body.message, scheduled_at_text, body.event_id)
     try:
         db.commit()
     except IntegrityError:
@@ -142,11 +144,14 @@ def estimate_snapshot(body: EstimateSnapshot, db: Session = Depends(db_session))
         outbox = db.scalar(select(EstimateOutbox).where(EstimateOutbox.estimate_id == body.estimate_id))
         if not existing or not outbox or existing.customer_id != body.customer_id or existing.vehicle_id != body.vehicle_id:
             raise HTTPException(404, "Estimate binding not found.")
+        previous_status, previous_amount = existing.status, existing.amount_cents
         try:
             apply_submitted_snapshot(db, existing, body, outbox.payload)
         except ValueError:
             raise HTTPException(409, "Estimate snapshot conflicts with submitted estimate.")
         existing.updated_at = now()
+        from .notifications import notify_estimate_change
+        notify_estimate_change(db, existing, previous_status, previous_amount)
         db.commit()
         return estimate_view(db, existing)
     e = db.scalar(select(Estimate).where(Estimate.source_id == body.source_id))
@@ -155,9 +160,14 @@ def estimate_snapshot(body: EstimateSnapshot, db: Session = Depends(db_session))
     if not e:
         e = Estimate(source_id=body.source_id, customer_id=body.customer_id, vehicle_id=body.vehicle_id)
         db.add(e)
+    previous_status, previous_amount = e.status, e.amount_cents
     for k, val in body.model_dump(exclude={"customer_id", "vehicle_id", "source_id"}).items():
+        if k == "processing_state" and val is None:
+            continue  # A snapshot without processing detail keeps the recorded state.
         setattr(e, k, val.isoformat() if hasattr(val, "isoformat") else val)
     e.updated_at = now()
+    from .notifications import notify_estimate_change
+    notify_estimate_change(db, e, previous_status, previous_amount)
     db.commit()
     return estimate_view(db, e)
 

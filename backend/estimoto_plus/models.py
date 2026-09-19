@@ -26,6 +26,7 @@ class Customer(Base):
     postal_code: Mapped[str] = mapped_column(String(30), default="")
     contact_preference: Mapped[str] = mapped_column(String(10), default="email")
     demo: Mapped[bool] = mapped_column(Boolean, default=False)
+    notification_emails: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class RateBucket(Base):
