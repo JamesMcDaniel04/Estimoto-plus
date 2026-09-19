@@ -93,7 +93,7 @@ def test_export_is_complete_private_and_downloadable(harness):
     assert response.headers["cache-control"] == "private, no-store"
     data = response.json()
     assert data["format"] == "estimoto-plus/1"
-    assert data["profile"] == {"id": "alice-id", "email": "alice@example.test", "name": "Alice", "phone": "", "postal_code": "80202", "contact_preference": "email"}
+    assert data["profile"] == {"id": "alice-id", "email": "alice@example.test", "name": "Alice", "phone": "", "postal_code": "80202", "contact_preference": "email", "email_updates": True}
     assert [v["id"] for v in data["vehicles"]] == [ids["vehicle"]]
     assert data["estimates"][0]["id"] == ids["estimate"] and data["estimates"][0]["photos"][0]["label"] == "hood"
     assert data["reminders"][0]["title"] == "Oil change"

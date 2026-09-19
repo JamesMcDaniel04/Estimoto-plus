@@ -33,6 +33,16 @@ Settings offers **Download my data** (a JSON export; the browser downloads it, i
 
 `ios/Runner/PrivacyInfo.xcprivacy` declares the collected data types (no tracking) and is bundled by the Xcode project; `Info.plist` enables Files sharing so the export is reachable. `AndroidManifest.xml` declares `https`, `tel` and `mailto` intent queries so shop websites, calls and support email open on Android 11+.
 
+## Activity, offline and diagnostics
+
+The bell in the app bar opens Activity, the feed of shop replies, ready estimates, confirmed times and due reminders, and shows the unread count from bootstrap. Opening the feed marks it read; tapping a notice jumps to the tab that holds the record. Settings › Notifications controls the matching emails. The Connections card shows the real Google Calendar state and opens the calendar screen when the backend offers it; Gmail is marked coming soon.
+
+A new garage shows a Getting started checklist (vehicle, profile, first estimate or request) until it is complete or dismissed; the dismissal is remembered per account in secure storage.
+
+After a successful load the bootstrap document is cached in the app support folder on native builds (memory only on web, like sessions). If the server cannot be reached and no data is loaded yet, the last copy opens with an Offline banner and a Reconnect action; a session error never restores cached data, and sign-out or account deletion clears it.
+
+Release builds with a configured API install global error handlers that post anonymous, redacted diagnostics (error type, message, first frames, version, platform) to `/v1/client-errors`, once per distinct error and at most 20 per session. Demo builds report nothing.
+
 ## Checks
 
 ```sh

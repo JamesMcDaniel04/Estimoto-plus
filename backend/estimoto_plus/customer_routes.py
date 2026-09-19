@@ -70,7 +70,8 @@ def enforce_cap(db, model, customer_id, limit, noun):
 
 
 def profile(c):
-    return {k: getattr(c, k) for k in ("id", "email", "name", "phone", "postal_code", "contact_preference")}
+    return {**{k: getattr(c, k) for k in ("id", "email", "name", "phone", "postal_code", "contact_preference")},
+            "email_updates": bool(c.notification_emails)}
 
 
 def vehicle(v):

@@ -48,6 +48,20 @@ abstract class PlusRepository {
     'Data download is available for signed-in accounts.',
   );
 
+  /// Activity feed: `notifications`, `unread` and `email_updates`.
+  Future<Json> listNotifications() async => {
+    'notifications': <Json>[],
+    'unread': 0,
+    'email_updates': true,
+  };
+  Future<Json> markNotificationsRead({
+    List<String> ids = const [],
+    bool all = false,
+  }) async => {'unread': 0};
+  Future<Json> setEmailUpdates(bool enabled) => throw const PlusApiException(
+    'Email updates can be changed for signed-in accounts.',
+  );
+
   /// Permanently erases the account. The caller signs out afterwards.
   Future<Json> deleteAccount() => throw const PlusApiException(
     'Account deletion is available for signed-in accounts.',

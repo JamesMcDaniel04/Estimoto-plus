@@ -6,6 +6,7 @@ import 'screens/estimates_screen.dart';
 import 'screens/estibot_screen.dart';
 import 'screens/repairs_screen.dart';
 import 'screens/find_help_screen.dart';
+import 'screens/activity_screen.dart';
 import 'navigation/route_observer.dart';
 import 'screens/settings_screen.dart';
 import 'state/plus_controller.dart';
@@ -29,6 +30,8 @@ class EstimotoPlusApp extends StatelessWidget {
     title: 'Estimoto +',
     debugShowCheckedModeBanner: false,
     theme: plusTheme(),
+    darkTheme: plusTheme(brightness: Brightness.dark),
+    themeMode: ThemeMode.system,
     navigatorObservers: [plusRouteObserver],
     home: _HomeShell(
       controller: controller,
@@ -126,6 +129,19 @@ class _HomeShellState extends State<_HomeShell> with WidgetsBindingObserver {
           ),
           actions: [
             IconButton(
+              tooltip: c.unreadNotifications == 0
+                  ? 'Activity'
+                  : 'Activity, ${c.unreadNotifications} new',
+              onPressed: c.snapshot == null
+                  ? null
+                  : () => ActivityScreen.open(context, c),
+              icon: Badge.count(
+                count: c.unreadNotifications,
+                isLabelVisible: c.unreadNotifications > 0,
+                child: const Icon(Icons.notifications_none_outlined, size: 22),
+              ),
+            ),
+            IconButton(
               tooltip: 'Refresh',
               onPressed: c.loading ? null : c.refresh,
               icon: const Icon(Icons.refresh, size: 22),
@@ -180,7 +196,20 @@ class _HomeShellState extends State<_HomeShell> with WidgetsBindingObserver {
                   key: ValueKey(c.snapshot!.profile.id),
                   controller: c,
                 ),
-              if (c.error != null && c.snapshot != null)
+              if (c.isOffline && c.snapshot != null)
+                MaterialBanner(
+                  leading: const Icon(Icons.cloud_off_outlined),
+                  content: Text(
+                    'Offline · showing what was saved ${relativeTime(c.offlineSince!.toIso8601String())}. Changes need a connection.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: c.loading ? null : c.refresh,
+                      child: const Text('Reconnect'),
+                    ),
+                  ],
+                )
+              else if (c.error != null && c.snapshot != null)
                 MaterialBanner(
                   content: Text(c.error!),
                   actions: [

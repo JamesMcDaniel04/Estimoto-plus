@@ -615,12 +615,73 @@ class DemoPlusRepository extends PlusRepository {
       _rows(key).where((row) => row['id'] == id).firstOrNull ??
       (throw const PlusApiException('This item is no longer available.', 404));
   @override
-  Future<PlusSnapshot> bootstrap() async =>
-      PlusSnapshot.fromJson(jsonDecode(jsonEncode(_state)) as Json);
+  Future<PlusSnapshot> bootstrap() async => PlusSnapshot.fromJson({
+    ...jsonDecode(jsonEncode(_state)) as Json,
+    'unread_notifications': _unread,
+  });
   @override
   Future<Json> saveProfile(Json body) async {
     (_state['profile'] as Json).addAll(body);
     return _state['profile'] as Json;
+  }
+
+  late final List<Json> _notices = [
+    {
+      'id': 'demo-notice-1',
+      'kind': 'request_accepted',
+      'title': 'Demo Dent Care accepted your request',
+      'body': 'Bring the car by any weekday morning.',
+      'source_kind': 'request',
+      'source_id': null,
+      'created_at': DateTime.now()
+          .subtract(const Duration(hours: 3))
+          .toUtc()
+          .toIso8601String(),
+      'read_at': null,
+    },
+    {
+      'id': 'demo-notice-2',
+      'kind': 'reminder_due',
+      'title': 'Oil change is due for the sample truck',
+      'body': 'Mark it complete in Garage once it is done.',
+      'source_kind': 'reminder',
+      'source_id': null,
+      'created_at': DateTime.now()
+          .subtract(const Duration(days: 2))
+          .toUtc()
+          .toIso8601String(),
+      'read_at': DateTime.now()
+          .subtract(const Duration(days: 1))
+          .toUtc()
+          .toIso8601String(),
+    },
+  ];
+  int get _unread => _notices.where((n) => n['read_at'] == null).length;
+
+  @override
+  Future<Json> listNotifications() async => {
+    'notifications': jsonDecode(jsonEncode(_notices)),
+    'unread': _unread,
+    'email_updates': (_state['profile'] as Json)['email_updates'] != false,
+  };
+  @override
+  Future<Json> markNotificationsRead({
+    List<String> ids = const [],
+    bool all = false,
+  }) async {
+    final stamp = DateTime.now().toUtc().toIso8601String();
+    for (final notice in _notices) {
+      if ((all || ids.contains(notice['id'])) && notice['read_at'] == null) {
+        notice['read_at'] = stamp;
+      }
+    }
+    return {'unread': _unread};
+  }
+
+  @override
+  Future<Json> setEmailUpdates(bool enabled) async {
+    (_state['profile'] as Json)['email_updates'] = enabled;
+    return {'email_updates': enabled};
   }
 
   @override

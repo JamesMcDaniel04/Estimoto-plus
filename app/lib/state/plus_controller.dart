@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
+import '../data/local_store.dart';
 import '../data/repository.dart';
 import '../data/pending_request_store.dart';
+import '../data/snapshot_cache.dart';
 import '../domain/models.dart';
 
 class ChatEntry {
@@ -28,9 +30,28 @@ class ChatEntry {
 }
 
 class PlusController extends ChangeNotifier {
-  PlusController(this.repository, {PendingRequestStore? pendingStore})
-    : pendingStore = pendingStore ?? MemoryPendingRequestStore();
+  PlusController(
+    this.repository, {
+    PendingRequestStore? pendingStore,
+    SnapshotCache? snapshotCache,
+    LocalStore? localStore,
+    this.cacheOwnerId,
+  }) : pendingStore = pendingStore ?? MemoryPendingRequestStore(),
+       snapshotCache = snapshotCache ?? MemorySnapshotCache(),
+       localStore = localStore ?? MemoryLocalStore();
   final PendingRequestStore pendingStore;
+  final SnapshotCache snapshotCache;
+  final LocalStore localStore;
+
+  /// Identity the last-known-data cache is filed under. Null (demo, dev
+  /// tokens) disables caching.
+  final String? cacheOwnerId;
+
+  /// When the current snapshot came from the cache because the server could
+  /// not be reached, the time that copy was saved.
+  DateTime? offlineSince;
+  bool get isOffline => offlineSince != null;
+  int get unreadNotifications => snapshot?.unreadNotifications ?? 0;
   PendingRequest? pendingRequest;
   final _pendingEstimates = <String, PendingRequest>{};
   final _sendingEstimates = <String>{};
@@ -103,6 +124,10 @@ class PlusController extends ChangeNotifier {
       }
       if (_disposed || generation != _refreshGeneration) return;
       snapshot = next;
+      offlineSince = null;
+      if (cacheOwnerId != null && !repository.isDemo) {
+        await snapshotCache.write(cacheOwnerId!, next.raw);
+      }
       // Knowledge is fetched separately from bootstrap. A successful refresh
       // must also invalidate receipt details and costs changed on the server.
       historyRevision++;
@@ -116,6 +141,9 @@ class PlusController extends ChangeNotifier {
     } catch (e) {
       if (!_disposed && generation == _refreshGeneration) {
         error = readableError(e);
+        if (snapshot == null && cacheOwnerId != null && !repository.isDemo) {
+          await _restoreCachedSnapshot(generation);
+        }
       }
     } finally {
       if (!_disposed && generation == _refreshGeneration) {
@@ -123,6 +151,52 @@ class PlusController extends ChangeNotifier {
         _notify();
       }
     }
+  }
+
+  /// Opens the last saved copy of the account when the server is unreachable.
+  /// Session errors (401) never restore data: a signed-out customer must not
+  /// see cached records.
+  Future<void> _restoreCachedSnapshot(int generation) async {
+    final failure = error;
+    if (failure == null || failure.contains('sign in')) return;
+    final cached = await snapshotCache.read(cacheOwnerId!);
+    if (_disposed || generation != _refreshGeneration || cached == null) return;
+    try {
+      snapshot = PlusSnapshot.fromJson(cached.document);
+    } catch (_) {
+      return;
+    }
+    offlineSince = cached.savedAt;
+    historyRevision++;
+    if (!snapshot!.vehicles.any((v) => v.id == selectedVehicleId)) {
+      selectedVehicleId = snapshot!.vehicles.firstOrNull?.id;
+    }
+  }
+
+  /// Forgets everything kept on this device for the signed-in customer.
+  Future<void> clearDeviceData() async {
+    final owner = cacheOwnerId ?? snapshot?.profile.id;
+    if (owner == null) return;
+    await snapshotCache.clear(owner);
+    await localStore.clear(owner);
+  }
+
+  /// Marks the feed read on the server and refreshes the badge quietly.
+  Future<Json> markNotificationsRead({
+    List<String> ids = const [],
+    bool all = false,
+  }) async {
+    final result = await repository.markNotificationsRead(ids: ids, all: all);
+    if (!repository.isDemo) {
+      await refresh(quiet: true);
+    } else if (snapshot != null) {
+      snapshot = PlusSnapshot.fromJson({
+        ...snapshot!.raw,
+        'unread_notifications': result['unread'] ?? 0,
+      });
+      _notify();
+    }
+    return result;
   }
 
   /// Revoke callback authority immediately, before Flutter disposes the old tree.

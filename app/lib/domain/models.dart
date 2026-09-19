@@ -35,6 +35,7 @@ class CustomerProfile {
   String get email => textOf(json, 'email');
   String get phone => textOf(json, 'phone');
   String get postalCode => textOf(json, 'postal_code');
+  bool get emailUpdates => json['email_updates'] != false;
 }
 
 class Vehicle {
@@ -348,8 +349,15 @@ class PlusSnapshot {
       ).map(ServiceReminder.fromJson).toList(),
       capabilities = Capabilities.fromJson(
         Map<String, dynamic>.from(json['capabilities'] as Map? ?? {}),
-      );
+      ),
+      unreadNotifications = intOf(json, 'unread_notifications'),
+      raw = json;
   final CustomerProfile profile;
+  final int unreadNotifications;
+
+  /// The server document this snapshot was built from, kept for the
+  /// last-known-data cache.
+  final Json raw;
   final List<Vehicle> vehicles;
   final List<ProviderProfile> providers;
   final List<CustomerEstimate> estimates;

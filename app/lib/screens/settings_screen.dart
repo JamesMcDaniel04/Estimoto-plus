@@ -7,6 +7,7 @@ import '../plus_links.dart';
 import '../services/account_export.dart';
 import '../state/plus_controller.dart';
 import '../widgets/common.dart';
+import 'calendar_screen.dart';
 import 'garage_forms.dart';
 
 /// Account, profile, session, data, legal and version in one place.
@@ -204,31 +205,40 @@ class SettingsScreen extends StatelessWidget {
                     : 'To change your email, sign in with the new address. Your email is how shops reach you and how you sign in.',
                 style: theme.textTheme.bodySmall,
               ),
+              const SectionHeading('Notifications'),
+              Card(
+                child: SwitchListTile(
+                  secondary: const Icon(Icons.mark_email_unread_outlined),
+                  title: const Text('Email me about updates'),
+                  subtitle: const Text(
+                    'Shop replies, ready estimates, confirmed times and due reminders. Activity in the app is always kept.',
+                  ),
+                  value: snapshot.profile.emailUpdates,
+                  onChanged: (value) => runAction(
+                    context,
+                    controller,
+                    () => controller.repository.setEmailUpdates(value),
+                    success: value ? 'Email updates on' : 'Email updates off',
+                  ),
+                ),
+              ),
               const SectionHeading('Connections'),
               Card(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   child: Column(
                     children: [
-                      ListTile(
-                        leading: Icon(
-                          Icons.hub_outlined,
-                          color: theme.colorScheme.primary,
-                        ),
-                        title: const Text('Nango'),
-                        subtitle: const Text(
-                          'Google Calendar · Not configured',
-                        ),
-                      ),
+                      _CalendarConnectionTile(controller: controller),
                       const Divider(indent: 16, endIndent: 16),
                       const ListTile(
+                        enabled: false,
                         leading: Icon(
                           Icons.mail_outline,
                           color: Color(0xFFEA4335),
                         ),
                         title: Text('Gmail'),
                         subtitle: Text(
-                          'Car-service appointments, estimates and receipts\nNot configured',
+                          'Car-service appointments, estimates and receipts\nComing soon · not available in this version',
                         ),
                       ),
                     ],
@@ -328,6 +338,42 @@ class SettingsScreen extends StatelessWidget {
             ],
           ),
         ),
+      );
+    },
+  );
+}
+
+/// Google Calendar through Nango: shows the real connection state and opens
+/// the calendar screen, instead of a label that could never be tapped.
+class _CalendarConnectionTile extends StatelessWidget {
+  const _CalendarConnectionTile({required this.controller});
+  final PlusController controller;
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<Json>(
+    future: controller.repository.getCalendarStatus(),
+    builder: (context, snapshot) {
+      final data = snapshot.data;
+      final status = data == null ? 'loading' : textOf(data, 'status');
+      final configured = data?['configured'] == true;
+      final subtitle = switch (status) {
+        'loading' => 'Google Calendar · Checking…',
+        'connected' => 'Google Calendar · Connected',
+        'connecting' => 'Google Calendar · Finish connecting',
+        'reconnect_required' => 'Google Calendar · Reconnect needed',
+        'unavailable' => 'Google Calendar · Not available in this version',
+        _ => 'Google Calendar · Not connected',
+      };
+      return ListTile(
+        leading: Icon(
+          Icons.calendar_month_outlined,
+          color: Theme.of(context).colorScheme.primary,
+        ),
+        title: const Text('Nango'),
+        subtitle: Text(subtitle),
+        trailing: configured ? const Icon(Icons.chevron_right) : null,
+        enabled: status != 'loading',
+        onTap: configured ? () => openCalendar(context, controller) : null,
       );
     },
   );

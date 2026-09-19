@@ -293,6 +293,24 @@ class ApiPlusRepository extends PlusRepository {
   }
 
   @override
+  Future<Json> listNotifications() => _send('GET', '/v1/notifications');
+  @override
+  Future<Json> markNotificationsRead({
+    List<String> ids = const [],
+    bool all = false,
+  }) => _send(
+    'POST',
+    '/v1/notifications/read',
+    body: all ? {'all': true} : {'ids': ids},
+  );
+  @override
+  Future<Json> setEmailUpdates(bool enabled) => _send(
+    'PUT',
+    '/v1/notifications/preferences',
+    body: {'email_updates': enabled},
+  );
+
+  @override
   Future<Json> exportAccount() =>
       _send('GET', '/v1/account/export', timeout: const Duration(seconds: 60));
 

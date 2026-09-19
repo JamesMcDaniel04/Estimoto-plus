@@ -8,7 +8,11 @@ import 'data/auth_storage.dart';
 import 'data/customer_auth.dart';
 import 'data/pending_request_store.dart';
 import 'data/demo_repository.dart';
+import 'data/local_store.dart';
 import 'data/repository.dart';
+import 'data/snapshot_cache.dart';
+import 'build_info.dart';
+import 'services/error_reporting.dart';
 import 'screens/welcome_screen.dart';
 import 'state/plus_controller.dart';
 import 'theme.dart';
@@ -21,8 +25,30 @@ const devToken = String.fromEnvironment('PLUS_DEV_TOKEN');
 bool get authConfigured =>
     supabaseUrl.isNotEmpty && supabaseKey.isNotEmpty && apiUrl.isNotEmpty;
 
+String get _platformName {
+  if (kIsWeb) return 'web';
+  return switch (defaultTargetPlatform) {
+    TargetPlatform.iOS => 'ios',
+    TargetPlatform.android => 'android',
+    _ => 'other',
+  };
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (apiUrl.isNotEmpty && !autoDemo && kReleaseMode) {
+    // Anonymous diagnostics only: no identity, token or customer data.
+    final origin = Uri.tryParse(apiUrl);
+    if (origin != null && origin.scheme == 'https') {
+      ClientErrorReporter(
+        apiOrigin: origin,
+        platform: _platformName,
+        appVersion: PlusBuildInfo.versionName,
+        buildNumber: PlusBuildInfo.buildNumber,
+        sourceSha: PlusBuildInfo.sourceSha,
+      ).install();
+    }
+  }
   String? setupError;
   if (authConfigured) {
     try {
@@ -158,6 +184,9 @@ class _PlusLauncherState extends State<PlusLauncher> {
         controller = PlusController(
           repository,
           pendingStore: widget.pendingStore ?? SecurePendingRequestStore(),
+          snapshotCache: SnapshotCache.platform(),
+          localStore: SecureLocalStore(),
+          cacheOwnerId: userId,
         );
       });
     } catch (_) {
@@ -182,6 +211,7 @@ class _PlusLauncherState extends State<PlusLauncher> {
 
   Future<void> _exit() async {
     final isDemo = controller?.repository.isDemo == true;
+    if (!isDemo) await controller?.clearDeviceData();
     if (!isDemo && widget.auth != null) {
       try {
         await widget.auth!.signOut();
@@ -201,6 +231,7 @@ class _PlusLauncherState extends State<PlusLauncher> {
   /// The server has already erased the account; only the local session is
   /// left. A failed local sign-out must not keep a deleted account on screen.
   Future<void> _accountDeleted() async {
+    await controller?.clearDeviceData();
     if (controller?.repository.isDemo != true && widget.auth != null) {
       try {
         await widget.auth!.signOut();
@@ -232,6 +263,8 @@ class _PlusLauncherState extends State<PlusLauncher> {
       title: 'Estimoto +',
       debugShowCheckedModeBanner: false,
       theme: plusTheme(),
+      darkTheme: plusTheme(brightness: Brightness.dark),
+      themeMode: ThemeMode.system,
       home: WelcomeScreen(
         authAvailable: widget.auth != null && widget.setupError == null,
         setupError: error,

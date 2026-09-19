@@ -12,6 +12,7 @@ import 'my_shops_screen.dart';
 import 'history_screen.dart';
 import 'vehicle_value_screen.dart';
 import 'settings_screen.dart';
+import '../widgets/getting_started.dart';
 
 class GarageScreen extends StatelessWidget {
   const GarageScreen({
@@ -90,6 +91,19 @@ class GarageScreen extends StatelessWidget {
             onAction: () => editVehicle(context, controller),
           )
         else ...[
+          GettingStartedCard(
+            key: ValueKey('getting-started-${data.profile.id}'),
+            controller: controller,
+            onAddVehicle: () => editVehicle(context, controller),
+            onEditProfile: () => SettingsScreen.open(
+              context,
+              controller,
+              onExit: onExit,
+              onAccountDeleted: onAccountDeleted,
+            ),
+            onStartEstimate: () => controller.selectTab(1),
+          ),
+          if (!GettingStartedCard.complete(data)) const SizedBox(height: 16),
           if (data.vehicles.length > 1) ...[
             VehiclePicker(controller: controller),
             const SizedBox(height: 16),
