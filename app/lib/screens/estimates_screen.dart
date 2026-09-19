@@ -79,9 +79,9 @@ class EstimatesScreen extends StatelessWidget {
                       children: [
                         Row(
                           children: [
-                            const Icon(
+                            Icon(
                               Icons.receipt_long_outlined,
-                              color: PlusColors.blue,
+                              color: Theme.of(context).colorScheme.primary,
                             ),
                             const SizedBox(width: 10),
                             Expanded(
@@ -93,9 +93,9 @@ class EstimatesScreen extends StatelessWidget {
                                 ),
                               ),
                             ),
-                            const Icon(
+                            Icon(
                               Icons.chevron_right,
-                              color: PlusColors.muted,
+                              color: context.plus.muted,
                             ),
                           ],
                         ),
@@ -113,8 +113,8 @@ class EstimatesScreen extends StatelessWidget {
                             StatusPill(
                               estimate.statusLabel,
                               color: estimate.status == 'approved'
-                                  ? const Color(0xFF08796D)
-                                  : PlusColors.blue,
+                                  ? context.plus.success
+                                  : Theme.of(context).colorScheme.primary,
                             ),
                             if (estimate.amountCents != null)
                               Text(

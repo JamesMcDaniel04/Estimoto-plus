@@ -210,7 +210,7 @@ class _VehiclePhotoScreenState extends State<VehiclePhotoScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             decoration: BoxDecoration(
-              color: PlusColors.navy,
+              color: context.plus.navyCard,
               borderRadius: BorderRadius.circular(20),
             ),
             child: VehiclePhotoPanel(

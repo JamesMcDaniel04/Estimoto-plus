@@ -10,7 +10,7 @@ class ShopMediaThumbnail extends StatelessWidget {
   final ProviderProfile provider;
   final double size;
 
-  Widget fallback() => Semantics(
+  Widget fallback(BuildContext context) => Semantics(
     label: 'Shop image unavailable',
     child: Center(
       key: const Key('shop-media-fallback'),
@@ -19,7 +19,7 @@ class ShopMediaThumbnail extends StatelessWidget {
             ? Icons.handyman_outlined
             : Icons.storefront_outlined,
         size: 28,
-        color: PlusColors.muted,
+        color: context.plus.muted,
       ),
     ),
   );
@@ -32,13 +32,15 @@ class ShopMediaThumbnail extends StatelessWidget {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
         child: ColoredBox(
+          // Artwork is authored for a fixed dark or white backdrop in either
+          // mode; only the neutral photo backdrop follows the theme.
           color: media?.darkBackground == true
               ? PlusColors.ink
               : media?.kind == 'logo'
               ? Colors.white
-              : PlusColors.canvas,
+              : context.plus.canvas,
           child: media == null
-              ? fallback()
+              ? fallback(context)
               : Padding(
                   padding: media.kind == 'logo'
                       ? const EdgeInsets.all(6)
@@ -53,8 +55,9 @@ class ShopMediaThumbnail extends StatelessWidget {
                     cacheWidth: 320,
                     semanticLabel: '${provider.name} ${media.kind}',
                     frameBuilder: (context, child, frame, synchronous) =>
-                        frame == null ? fallback() : child,
-                    errorBuilder: (context, error, stack) => fallback(),
+                        frame == null ? fallback(context) : child,
+                    errorBuilder: (context, error, stack) =>
+                        fallback(context),
                   ),
                 ),
         ),

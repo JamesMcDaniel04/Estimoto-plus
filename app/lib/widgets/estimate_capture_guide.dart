@@ -4,6 +4,7 @@ import '../domain/models.dart';
 import '../services/estimate_capture.dart';
 import '../services/estimate_capture_steps.dart';
 import '../state/plus_controller.dart';
+import '../theme.dart';
 import 'common.dart';
 import 'private_estimate_photo.dart';
 
@@ -350,9 +351,9 @@ class _EstimateCaptureGuideState extends State<EstimateCaptureGuide> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (ready && selectedKey == null) ...[
-                    const Icon(
+                    Icon(
                       Icons.check_circle_outline,
-                      color: Color(0xFF08796D),
+                      color: context.plus.success,
                     ),
                     const SizedBox(height: 10),
                     Text(
@@ -454,7 +455,7 @@ class _EstimateCaptureGuideState extends State<EstimateCaptureGuide> {
                 saved.contains(key)
                     ? Icons.check_circle
                     : Icons.radio_button_unchecked,
-                color: saved.contains(key) ? const Color(0xFF08796D) : null,
+                color: saved.contains(key) ? context.plus.success : null,
               ),
               title: Text(captureLabel(key)),
               subtitle: Text(
@@ -477,7 +478,7 @@ class _EstimateCaptureGuideState extends State<EstimateCaptureGuide> {
                 damageNeeded
                     ? Icons.radio_button_unchecked
                     : Icons.check_circle,
-                color: damageNeeded ? null : const Color(0xFF08796D),
+                color: damageNeeded ? null : context.plus.success,
               ),
               title: const Text('Damaged panel'),
               subtitle: Text(damageNeeded ? 'Still needed for PDR' : 'Saved'),

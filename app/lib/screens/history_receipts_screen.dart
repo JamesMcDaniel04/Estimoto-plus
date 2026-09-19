@@ -931,6 +931,7 @@ class _PrivateReceiptViewState extends State<PrivateReceiptView> {
               child: Center(
                 child: Image.memory(
                   widget.bytes,
+                  semanticLabel: 'Receipt photo',
                   errorBuilder: (_, error, stack) =>
                       const Text('This receipt photo could not be displayed.'),
                 ),

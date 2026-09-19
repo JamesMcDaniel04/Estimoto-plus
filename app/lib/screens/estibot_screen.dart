@@ -137,17 +137,17 @@ class _EstibotScreenState extends WorkspaceState<EstibotScreen> {
                       Container(
                         padding: const EdgeInsets.all(22),
                         decoration: BoxDecoration(
-                          color: Colors.white,
+                          color: context.plus.card,
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const CircleAvatar(
-                              backgroundColor: Color(0xFFE5F5F2),
+                            CircleAvatar(
+                              backgroundColor: context.plus.successSoft,
                               child: Icon(
                                 Icons.support_agent,
-                                color: Color(0xFF08796D),
+                                color: context.plus.success,
                               ),
                             ),
                             const SizedBox(height: 16),
@@ -178,7 +178,7 @@ class _EstibotScreenState extends WorkspaceState<EstibotScreen> {
                               onPressed: () => send(prompt),
                               style: OutlinedButton.styleFrom(
                                 alignment: Alignment.centerLeft,
-                                backgroundColor: Colors.white,
+                                backgroundColor: context.plus.card,
                               ),
                               child: Padding(
                                 padding: const EdgeInsets.symmetric(
@@ -206,16 +206,16 @@ class _EstibotScreenState extends WorkspaceState<EstibotScreen> {
                                 padding: const EdgeInsets.all(17),
                                 decoration: BoxDecoration(
                                   color: entry.isUser
-                                      ? PlusColors.navy
-                                      : Colors.white,
+                                      ? context.plus.navyCard
+                                      : context.plus.card,
                                   borderRadius: BorderRadius.circular(18),
                                 ),
                                 child: Text(
                                   entry.text,
                                   style: TextStyle(
                                     color: entry.isUser
-                                        ? Colors.white
-                                        : PlusColors.ink,
+                                        ? context.plus.onNavy
+                                        : context.plus.ink,
                                     height: 1.5,
                                   ),
                                 ),
@@ -344,7 +344,7 @@ class _EstibotScreenState extends WorkspaceState<EstibotScreen> {
           ),
         ),
         Container(
-          color: Colors.white,
+          color: context.plus.card,
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,

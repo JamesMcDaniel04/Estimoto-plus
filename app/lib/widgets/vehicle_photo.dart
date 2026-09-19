@@ -3,6 +3,11 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../domain/models.dart';
 import '../state/plus_controller.dart';
+import '../theme.dart';
+
+/// The photo well sits inside the brand-navy vehicle card in both modes.
+const _photoWell = Color(0xFF1A426C);
+const _photoWellIcon = Color(0xFFBED9EC);
 
 /// Private image bytes stay scoped to this customer's current vehicle view.
 /// Rebuilding a tab or refreshing status never starts another provider lookup.
@@ -103,8 +108,8 @@ class _VehiclePhotoPanelState extends State<VehiclePhotoPanel> {
     super.dispose();
   }
 
-  Widget placeholder() => ColoredBox(
-    color: const Color(0xFF1A426C),
+  Widget placeholder(BuildContext context) => ColoredBox(
+    color: _photoWell,
     child: Center(
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -113,14 +118,14 @@ class _VehiclePhotoPanelState extends State<VehiclePhotoPanel> {
           children: [
             const Icon(
               Icons.add_photo_alternate_outlined,
-              color: Color(0xFFBED9EC),
+              color: _photoWellIcon,
               size: 38,
             ),
             const SizedBox(height: 10),
             Text(
               error ?? 'Add a photo of your car',
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white, fontSize: 14),
+              style: TextStyle(color: context.plus.onNavy, fontSize: 14),
             ),
           ],
         ),
@@ -139,27 +144,28 @@ class _VehiclePhotoPanelState extends State<VehiclePhotoPanel> {
           child: AspectRatio(
             aspectRatio: 16 / 9,
             child: loading
-                ? const ColoredBox(
-                    color: Color(0xFF1A426C),
+                ? ColoredBox(
+                    color: _photoWell,
                     child: Center(
                       child: SizedBox(
                         width: 24,
                         height: 24,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: Colors.white,
+                          color: context.plus.onNavy,
+                          semanticsLabel: 'Loading vehicle photo',
                         ),
                       ),
                     ),
                   )
                 : image == null
-                ? placeholder()
+                ? placeholder(context)
                 : Image(
                     image: image!,
                     fit: photo!.isUpload ? BoxFit.cover : BoxFit.contain,
                     semanticLabel: '${photo!.label}: ${widget.vehicle.title}',
                     gaplessPlayback: false,
-                    errorBuilder: (_, _, _) => placeholder(),
+                    errorBuilder: (context, _, _) => placeholder(context),
                   ),
           ),
         ),
@@ -171,13 +177,13 @@ class _VehiclePhotoPanelState extends State<VehiclePhotoPanel> {
           children: [
             Text(
               photo?.label ?? (loading ? 'Finding a vehicle photo…' : ''),
-              style: const TextStyle(color: Color(0xFFC5DAED), fontSize: 11),
+              style: TextStyle(color: context.plus.onNavyMuted, fontSize: 11),
             ),
             if (error != null)
               IconButton(
                 tooltip: 'Retry vehicle photo',
                 onPressed: load,
-                icon: const Icon(Icons.refresh, color: Colors.white, size: 19),
+                icon: Icon(Icons.refresh, color: context.plus.onNavy, size: 19),
               ),
             if (widget.onEdit != null)
               TextButton.icon(
@@ -188,7 +194,7 @@ class _VehiclePhotoPanelState extends State<VehiclePhotoPanel> {
                   softWrap: true,
                 ),
                 style: TextButton.styleFrom(
-                  foregroundColor: Colors.white,
+                  foregroundColor: context.plus.onNavy,
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                 ),
               ),

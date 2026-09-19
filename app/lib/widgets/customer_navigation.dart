@@ -11,49 +11,58 @@ class CustomerNavigation extends StatelessWidget {
   Widget build(BuildContext context) => BottomAppBar(
     height: 80,
     padding: const EdgeInsets.symmetric(horizontal: 4),
-    color: Colors.white,
+    color: Theme.of(context).colorScheme.surface,
     surfaceTintColor: Colors.transparent,
     elevation: 3,
     shadowColor: Colors.black.withValues(alpha: .18),
     shape: const CradledNavigationShape(),
     clipBehavior: Clip.antiAlias,
     notchMargin: 8,
-    child: Row(
-      children: [
-        _destination(
-          0,
-          'Garage',
-          'garage',
-          Icons.directions_car_outlined,
-          Icons.directions_car,
-        ),
-        _destination(
-          1,
-          'Estimates',
-          'estimates',
-          Icons.receipt_long_outlined,
-          Icons.receipt_long,
-        ),
-        const SizedBox(width: 96),
-        _destination(
-          3,
-          'Repairs',
-          'repairs',
-          Icons.build_outlined,
-          Icons.build,
-        ),
-        _destination(
-          4,
-          'Find Help',
-          'find-help',
-          Icons.place_outlined,
-          Icons.place,
-        ),
-      ],
+    // The bar has a fixed height, so its labels cap their text scale.
+    child: MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.3,
+      child: Row(
+        children: [
+          _destination(
+            context,
+            0,
+            'Garage',
+            'garage',
+            Icons.directions_car_outlined,
+            Icons.directions_car,
+          ),
+          _destination(
+            context,
+            1,
+            'Estimates',
+            'estimates',
+            Icons.receipt_long_outlined,
+            Icons.receipt_long,
+          ),
+          const SizedBox(width: 96),
+          _destination(
+            context,
+            3,
+            'Repairs',
+            'repairs',
+            Icons.build_outlined,
+            Icons.build,
+          ),
+          _destination(
+            context,
+            4,
+            'Find Help',
+            'find-help',
+            Icons.place_outlined,
+            Icons.place,
+          ),
+        ],
+      ),
     ),
   );
 
   Widget _destination(
+    BuildContext context,
     int index,
     String label,
     String key,
@@ -61,7 +70,9 @@ class CustomerNavigation extends StatelessWidget {
     IconData selectedIcon,
   ) {
     final selected = controller.tab == index;
-    final color = selected ? PlusColors.blue : PlusColors.muted;
+    final color = selected
+        ? Theme.of(context).colorScheme.primary
+        : context.plus.muted;
     void select() => controller.selectTab(index);
     return Expanded(
       child: Semantics(
@@ -121,8 +132,12 @@ class EstibotNavigationButton extends StatelessWidget {
         key: const Key('nav-estibot'),
         heroTag: 'estibot_navigation',
         tooltip: 'Estibot',
-        backgroundColor: selected ? PlusColors.navy : PlusColors.blue,
-        foregroundColor: Colors.white,
+        backgroundColor: selected
+            ? context.plus.navyCard
+            : Theme.of(context).colorScheme.primary,
+        foregroundColor: selected
+            ? context.plus.onNavy
+            : Theme.of(context).colorScheme.onPrimary,
         elevation: 4,
         shape: CircleBorder(
           side: BorderSide(

@@ -244,11 +244,11 @@ class GarageScreen extends StatelessWidget {
                       horizontal: 18,
                       vertical: 7,
                     ),
-                    leading: const CircleAvatar(
-                      backgroundColor: Color(0xFFE9F5F3),
+                    leading: CircleAvatar(
+                      backgroundColor: context.plus.soft,
                       child: Icon(
                         Icons.build_outlined,
-                        color: Color(0xFF08796D),
+                        color: context.plus.teal,
                         size: 21,
                       ),
                     ),
@@ -283,15 +283,15 @@ class GarageScreen extends StatelessWidget {
           child: Ink(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: const Color(0xFFE3F1F8),
+              color: context.plus.banner,
               borderRadius: BorderRadius.circular(20),
             ),
             child: Row(
               children: [
-                const Icon(
+                Icon(
                   Icons.support_agent,
                   size: 32,
-                  color: PlusColors.navy,
+                  color: context.plus.onBanner,
                 ),
                 const SizedBox(width: 16),
                 Expanded(
@@ -303,18 +303,18 @@ class GarageScreen extends StatelessWidget {
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 4),
-                      const Text(
+                      Text(
                         'Understand a repair or connect with the right technician.',
                         style: TextStyle(
                           fontSize: 14,
                           height: 1.4,
-                          color: PlusColors.muted,
+                          color: context.plus.muted,
                         ),
                       ),
                     ],
                   ),
                 ),
-                const Icon(Icons.chevron_right, color: PlusColors.navy),
+                Icon(Icons.chevron_right, color: context.plus.onBanner),
               ],
             ),
           ),
@@ -329,9 +329,9 @@ class GarageScreen extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 8),
             child: Card(
               child: ListTile(
-                leading: const Icon(
+                leading: Icon(
                   Icons.directions_car_outlined,
-                  color: PlusColors.blue,
+                  color: Theme.of(context).colorScheme.primary,
                 ),
                 title: Text(car.title),
                 subtitle: Text('${mileageText(car.mileage)} miles'),
@@ -339,7 +339,7 @@ class GarageScreen extends StatelessWidget {
                   car.id == vehicle?.id
                       ? Icons.radio_button_checked
                       : Icons.radio_button_off,
-                  color: PlusColors.blue,
+                  color: Theme.of(context).colorScheme.primary,
                 ),
                 onTap: () => controller.selectVehicle(car.id),
               ),
@@ -350,9 +350,9 @@ class GarageScreen extends StatelessWidget {
           child: Column(
             children: [
               ListTile(
-                leading: const Icon(
+                leading: Icon(
                   Icons.storefront_outlined,
-                  color: PlusColors.blue,
+                  color: Theme.of(context).colorScheme.primary,
                 ),
                 title: const Text('My shops'),
                 subtitle: const Text('Saved contacts and scheduling requests'),
@@ -361,9 +361,9 @@ class GarageScreen extends StatelessWidget {
               ),
               const Divider(height: 1),
               ListTile(
-                leading: const Icon(
+                leading: Icon(
                   Icons.calendar_month_outlined,
-                  color: PlusColors.blue,
+                  color: Theme.of(context).colorScheme.primary,
                 ),
                 title: const Text('Calendar'),
                 subtitle: const Text(
@@ -374,9 +374,9 @@ class GarageScreen extends StatelessWidget {
               ),
               const Divider(height: 1),
               ListTile(
-                leading: const Icon(
+                leading: Icon(
                   Icons.price_check_outlined,
-                  color: PlusColors.blue,
+                  color: Theme.of(context).colorScheme.primary,
                 ),
                 title: const Text('Vehicle value'),
                 subtitle: const Text(
@@ -389,9 +389,9 @@ class GarageScreen extends StatelessWidget {
               ),
               const Divider(height: 1),
               ListTile(
-                leading: const Icon(
+                leading: Icon(
                   Icons.history_outlined,
-                  color: PlusColors.blue,
+                  color: Theme.of(context).colorScheme.primary,
                 ),
                 title: const Text('Service history & receipts'),
                 subtitle: const Text(
@@ -428,7 +428,7 @@ class _QuickAction extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, color: PlusColors.blue, size: 26),
+            Icon(icon, color: Theme.of(context).colorScheme.primary, size: 26),
             const SizedBox(height: 14),
             Text(
               title,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../domain/models.dart';
 import '../state/plus_controller.dart';
+import '../theme.dart';
 import '../widgets/common.dart';
 import '../services/estimate_capture.dart';
 import '../services/estimate_capture_steps.dart';
@@ -436,9 +437,9 @@ class _EstimateDetailScreenState extends WorkspaceState<EstimateDetailScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Icon(
+                                  Icon(
                                     Icons.view_in_ar_outlined,
-                                    color: Color(0xFF08796D),
+                                    color: context.plus.success,
                                     size: 36,
                                   ),
                                   const SizedBox(height: 14),

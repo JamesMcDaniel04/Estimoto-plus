@@ -174,17 +174,17 @@ class _HomeShellState extends State<_HomeShell> with WidgetsBindingObserver {
               if (c.isDemo)
                 Container(
                   width: double.infinity,
-                  color: const Color(0xFFE5F0F7),
+                  color: context.plus.banner,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 16,
                     vertical: 7,
                   ),
-                  child: const Text(
+                  child: Text(
                     'Demo · sample data, no real requests',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 12,
-                      color: PlusColors.navy,
+                      color: context.plus.onBanner,
                       fontWeight: FontWeight.w500,
                     ),
                   ),

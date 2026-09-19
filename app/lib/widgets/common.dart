@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../state/plus_controller.dart';
-import '../theme.dart';
 
 class PageBody extends StatelessWidget {
   const PageBody({
@@ -90,26 +89,31 @@ class SectionHeading extends StatelessWidget {
 }
 
 class StatusPill extends StatelessWidget {
-  const StatusPill(this.label, {super.key, this.color = PlusColors.blue});
+  const StatusPill(this.label, {super.key, this.color});
   final String label;
-  final Color color;
+
+  /// Defaults to the scheme's primary color.
+  final Color? color;
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-    decoration: BoxDecoration(
-      color: color.withValues(alpha: .09),
-      borderRadius: BorderRadius.circular(8),
-    ),
-    child: Text(
-      label,
-      style: TextStyle(
-        fontSize: 12,
-        height: 1.25,
-        color: color,
-        fontWeight: FontWeight.w600,
+  Widget build(BuildContext context) {
+    final color = this.color ?? Theme.of(context).colorScheme.primary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .09),
+        borderRadius: BorderRadius.circular(8),
       ),
-    ),
-  );
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 12,
+          height: 1.25,
+          color: color,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
 }
 
 class EmptyState extends StatelessWidget {
@@ -132,7 +136,7 @@ class EmptyState extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 36, color: PlusColors.blue),
+          Icon(icon, size: 36, color: Theme.of(context).colorScheme.primary),
           const SizedBox(height: 16),
           Text(title, style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
@@ -204,7 +208,10 @@ class BusyButton extends StatelessWidget {
       icon: busy
           ? const SizedBox.square(
               dimension: 18,
-              child: CircularProgressIndicator(strokeWidth: 2),
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                semanticsLabel: 'Working',
+              ),
             )
           : Icon(icon ?? Icons.check, size: 19),
       label: Text(busy ? 'Please wait…' : label),

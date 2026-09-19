@@ -112,41 +112,53 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          const Text(
-            'Estimoto +',
-            style: TextStyle(
-              fontSize: 26,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -.7,
+          // The wordmark shrinks instead of overflowing at large text sizes.
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                'Estimoto +',
+                maxLines: 1,
+                style: TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -.7,
+                ),
+              ),
             ),
           ),
           const SizedBox(height: 42),
-          const Text(
-            'A better home\nfor your car care.',
-            style: TextStyle(
-              fontSize: 38,
-              height: 1.13,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -1.3,
+          // The headline wraps freely but caps its scale so single words fit.
+          MediaQuery.withClampedTextScaling(
+            maxScaleFactor: 1.6,
+            child: const Text(
+              'A better home\nfor your car care.',
+              style: TextStyle(
+                fontSize: 38,
+                height: 1.13,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -1.3,
+              ),
             ),
           ),
           const SizedBox(height: 18),
-          const Text(
+          Text(
             'Keep your vehicles together. Understand your repairs. Find the right person to help.',
-            style: TextStyle(
-              fontSize: 17,
-              height: 1.5,
-              color: PlusColors.muted,
-            ),
+            style: TextStyle(fontSize: 17, height: 1.5, color: context.plus.muted),
           ),
           const SizedBox(height: 28),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-            decoration: BoxDecoration(
-              color: PlusColors.navy,
-              borderRadius: BorderRadius.circular(24),
+          Semantics(
+            label: 'Illustration of a car',
+            image: true,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+              decoration: BoxDecoration(
+                color: context.plus.navyCard,
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: const VehicleIllustration(),
             ),
-            child: const VehicleIllustration(),
           ),
           const SizedBox(height: 28),
           if (widget.authAvailable) ...[
@@ -208,9 +220,9 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                 child: const Text('Use another email'),
               ),
           ] else
-            const Text(
+            Text(
               'Early access is taking shape. Explore the customer experience with sample vehicles and providers.',
-              style: TextStyle(color: PlusColors.muted),
+              style: TextStyle(color: context.plus.muted),
             ),
           if (error != null || widget.setupError != null)
             Padding(
@@ -229,16 +241,16 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
             ),
           ),
           const SizedBox(height: 18),
-          const Text(
+          Text(
             'Demo activity stays in the preview. No shops or technicians are contacted.',
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 12, color: PlusColors.muted),
+            style: TextStyle(fontSize: 12, color: context.plus.muted),
           ),
           const SizedBox(height: 8),
-          const Text(
+          Text(
             'By continuing you agree to our terms and privacy policy.',
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 12, color: PlusColors.muted),
+            style: TextStyle(fontSize: 12, color: context.plus.muted),
           ),
           Wrap(
             alignment: WrapAlignment.center,

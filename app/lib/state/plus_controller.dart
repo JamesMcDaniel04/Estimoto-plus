@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
@@ -126,7 +127,11 @@ class PlusController extends ChangeNotifier {
       snapshot = next;
       offlineSince = null;
       if (cacheOwnerId != null && !repository.isDemo) {
-        await snapshotCache.write(cacheOwnerId!, next.raw);
+        // Never hold the UI on device storage; a lost write only means the
+        // previous copy is what opens offline next time.
+        unawaited(
+          snapshotCache.write(cacheOwnerId!, next.raw).catchError((_) {}),
+        );
       }
       // Knowledge is fetched separately from bootstrap. A successful refresh
       // must also invalidate receipt details and costs changed on the server.
@@ -159,7 +164,9 @@ class PlusController extends ChangeNotifier {
   Future<void> _restoreCachedSnapshot(int generation) async {
     final failure = error;
     if (failure == null || failure.contains('sign in')) return;
-    final cached = await snapshotCache.read(cacheOwnerId!);
+    final cached = await snapshotCache
+        .read(cacheOwnerId!)
+        .timeout(const Duration(seconds: 3), onTimeout: () => null);
     if (_disposed || generation != _refreshGeneration || cached == null) return;
     try {
       snapshot = PlusSnapshot.fromJson(cached.document);

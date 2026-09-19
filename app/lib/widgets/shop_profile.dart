@@ -97,9 +97,9 @@ class ShopProfile extends StatelessWidget {
           ),
           if (confirmed) ...[
             const SizedBox(height: 12),
-            const StatusPill(
+            StatusPill(
               'Business contact details checked',
-              color: PlusColors.navy,
+              color: context.plus.navy,
             ),
           ],
           const SizedBox(height: 20),

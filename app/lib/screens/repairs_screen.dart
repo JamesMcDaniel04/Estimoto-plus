@@ -70,7 +70,7 @@ class RepairsScreen extends StatelessWidget {
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     const SizedBox(height: 18),
-                    StatusPill(repair.status, color: const Color(0xFF08796D)),
+                    StatusPill(repair.status, color: context.plus.success),
                     const SizedBox(height: 24),
                     for (final (index, stage) in repair.stages.indexed)
                       _TimelineStep(
@@ -223,6 +223,8 @@ class _TimelineStep extends StatelessWidget {
   Widget build(BuildContext context) {
     final done = status == 'completed';
     final current = status == 'current';
+    final palette = context.plus;
+    final scheme = Theme.of(context).colorScheme;
     return IntrinsicHeight(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -237,10 +239,10 @@ class _TimelineStep extends StatelessWidget {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: done
-                        ? const Color(0xFF08796D)
+                        ? palette.success
                         : current
-                        ? PlusColors.blue
-                        : const Color(0xFFECF0F5),
+                        ? scheme.primary
+                        : palette.soft,
                   ),
                   child: Icon(
                     done
@@ -249,14 +251,18 @@ class _TimelineStep extends StatelessWidget {
                         ? Icons.circle
                         : Icons.circle_outlined,
                     size: current ? 10 : 15,
-                    color: done || current ? Colors.white : PlusColors.muted,
+                    color: done
+                        ? palette.onSuccess
+                        : current
+                        ? scheme.onPrimary
+                        : palette.muted,
                   ),
                 ),
                 if (!last)
                   Expanded(
                     child: Container(
                       width: 2,
-                      color: done ? const Color(0xFF8BD2C7) : PlusColors.line,
+                      color: done ? palette.successLine : palette.line,
                     ),
                   ),
               ],
@@ -273,9 +279,7 @@ class _TimelineStep extends StatelessWidget {
                     title,
                     style: TextStyle(
                       fontWeight: current ? FontWeight.w700 : FontWeight.w500,
-                      color: current || done
-                          ? PlusColors.ink
-                          : PlusColors.muted,
+                      color: current || done ? palette.ink : palette.muted,
                     ),
                   ),
                   if (date.isNotEmpty)
