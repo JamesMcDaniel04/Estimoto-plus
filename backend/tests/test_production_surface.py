@@ -60,3 +60,20 @@ def test_development_docs_remain_available(tmp_path):
         assert client.get('/openapi.json').status_code == 200
         assert 'strict-transport-security' not in client.get('/health/live').headers
     app.state.engine.dispose()
+
+
+def test_unexpected_errors_are_json_without_traces_and_stay_private(tmp_path):
+    app = create_app(Settings(environment='test', database_url='sqlite://',
+                              photo_dir=str(tmp_path), worker_enabled=False))
+
+    @app.get('/boom')
+    def boom():
+        raise RuntimeError('secret detail')
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get('/boom')
+    assert response.status_code == 500
+    assert response.json() == {'detail': 'Something went wrong. Please try again.'}
+    assert 'secret' not in response.text
+    assert response.headers['cache-control'] == 'private, no-store'
+    assert response.headers['x-content-type-options'] == 'nosniff'

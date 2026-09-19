@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../plus_links.dart';
 import '../domain/models.dart';
 import '../state/plus_controller.dart';
 import '../screens/request_sheet.dart';
@@ -88,17 +89,11 @@ class DiscoveryDetails extends StatelessWidget {
           'Results may be suggested for your vehicle by Google Maps. Confirm the exact repair and vehicle expertise with the shop.',
         ),
         TextButton(
-          onPressed: () => openExternal(
-            context,
-            'https://estimoto-plus-api.fly.dev/discovery-terms.html',
-          ),
+          onPressed: () => openExternal(context, discoveryTermsUrl),
           child: const Text('Shop search terms'),
         ),
         TextButton(
-          onPressed: () => openExternal(
-            context,
-            'https://estimoto-plus-api.fly.dev/discovery-privacy.html',
-          ),
+          onPressed: () => openExternal(context, discoveryPrivacyUrl),
           child: const Text('Shop search privacy'),
         ),
       ],

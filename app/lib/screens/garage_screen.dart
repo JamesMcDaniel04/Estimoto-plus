@@ -14,9 +14,15 @@ import 'vehicle_value_screen.dart';
 import 'settings_screen.dart';
 
 class GarageScreen extends StatelessWidget {
-  const GarageScreen({super.key, required this.controller, this.onExit});
+  const GarageScreen({
+    super.key,
+    required this.controller,
+    this.onExit,
+    this.onAccountDeleted,
+  });
   final PlusController controller;
   final VoidCallback? onExit;
+  final VoidCallback? onAccountDeleted;
 
   Future<void> _complete(BuildContext context, ServiceReminder reminder) async {
     final messenger = ScaffoldMessenger.of(context);
@@ -65,8 +71,12 @@ class GarageScreen extends StatelessWidget {
           'Your cars. Your care. All together.',
           trailing: IconButton.filledTonal(
             tooltip: 'Your profile',
-            onPressed: () =>
-                SettingsScreen.open(context, controller, onExit: onExit),
+            onPressed: () => SettingsScreen.open(
+              context,
+              controller,
+              onExit: onExit,
+              onAccountDeleted: onAccountDeleted,
+            ),
             icon: const Icon(Icons.person_outline),
           ),
         ),

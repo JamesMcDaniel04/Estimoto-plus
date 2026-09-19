@@ -132,6 +132,20 @@ class PlusController extends ChangeNotifier {
     _notify();
   }
 
+  /// Fetches the customer's complete data as JSON.
+  Future<Json> exportAccount() => repository.exportAccount();
+
+  /// Erases the account on the server and ends this session's authority.
+  /// The launcher signs out and returns to Welcome once this completes.
+  Future<Json> deleteAccount() async {
+    final result = await repository.deleteAccount();
+    accountDeleted = true;
+    invalidateSession();
+    return result;
+  }
+
+  bool accountDeleted = false;
+
   void reportSessionError() {
     error =
         'Your sign-in could not refresh. Check your connection or sign in again.';

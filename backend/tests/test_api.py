@@ -511,3 +511,37 @@ def test_estimate_invalid_partial_edits_are_validation_errors(clients, body):
     vid = create_vehicle(client)
     eid = client.post('/v1/estimates', headers=h('alice'), json={'vehicle_id': vid, 'discipline': 'pdr', 'description': 'Dent'}).json()['id']
     assert client.put(f'/v1/estimates/{eid}', headers=h('alice'), json=body).status_code == 422
+
+
+def test_per_customer_creation_caps(clients, monkeypatch):
+    import estimoto_plus.customer_routes as routes
+    monkeypatch.setattr(routes, "MAX_VEHICLES_PER_CUSTOMER", 2)
+    monkeypatch.setattr(routes, "MAX_REMINDERS_PER_CUSTOMER", 1)
+    monkeypatch.setattr(routes, "MAX_ESTIMATES_PER_CUSTOMER", 1)
+    client, _ = clients
+    vehicle = create_vehicle(client)
+    assert client.post("/v1/vehicles", headers=h("alice"), json={"year": 2021, "make": "Kia", "model": "Soul"}).status_code == 201
+    third = client.post("/v1/vehicles", headers=h("alice"), json={"year": 2022, "make": "Kia", "model": "Niro"})
+    assert third.status_code == 409 and third.json()["code"] == "limit_reached"
+    assert client.post("/v1/vehicles", headers=h("bob"), json={"year": 2022, "make": "Kia", "model": "Niro"}).status_code == 201
+    reminder = {"vehicle_id": vehicle, "title": "Tires", "due_mileage": 1000}
+    assert client.post("/v1/reminders", headers=h("alice"), json=reminder).status_code == 201
+    assert client.post("/v1/reminders", headers=h("alice"), json=reminder).status_code == 409
+    estimate = {"vehicle_id": vehicle, "discipline": "pdr", "description": "Hail"}
+    assert client.post("/v1/estimates", headers=h("alice"), json=estimate).status_code == 201
+    assert client.post("/v1/estimates", headers=h("alice"), json=estimate).status_code == 409
+
+
+def test_worker_prunes_stale_rate_buckets(clients):
+    from estimoto_plus.app import prune_rate_buckets
+    from estimoto_plus.models import RateBucket, now
+    client, _ = clients
+    create_vehicle(client)
+    current = int(now().timestamp() // 3600)
+    with client.app.state.session_factory() as db:
+        db.add(RateBucket(customer_id="alice-id", action="old", hour_bucket=current - 49, count=3))
+        db.add(RateBucket(customer_id="alice-id", action="recent", hour_bucket=current - 1, count=3))
+        db.commit()
+    assert prune_rate_buckets(client.app.state.session_factory) == 1
+    with client.app.state.session_factory() as db:
+        assert [row.action for row in db.scalars(select(RateBucket).where(RateBucket.customer_id == "alice-id"))] == ["recent"]

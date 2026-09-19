@@ -132,12 +132,21 @@ class ApiPlusRepository extends PlusRepository {
       );
     }
     if (response.statusCode >= 300) {
-      String? code;
+      String? code, serverMessage;
       if (response.statusCode == 409) {
         try {
           final error = jsonDecode(response.body);
           if (error is Map && error['code'] == 'request_not_created') {
             code = 'request_not_created';
+          } else if (error is Map &&
+              const [
+                'open_requests',
+                'limit_reached',
+              ].contains(error['code']) &&
+              error['detail'] is String) {
+            // These conflicts carry customer-ready wording from the server.
+            code = error['code'] as String;
+            serverMessage = error['detail'] as String;
           }
         } on FormatException {
           // An unrecognized conflict remains unresolved; never guess it was rejected.
@@ -161,7 +170,8 @@ class ApiPlusRepository extends PlusRepository {
       throw PlusApiException(
         code == 'request_not_created'
             ? 'That provider is no longer available for this request. Choose another provider.'
-            : calendarMessage ??
+            : serverMessage ??
+                  calendarMessage ??
                   errors[response.statusCode] ??
                   'We could not complete that action. Please try again.',
         response.statusCode,
@@ -281,6 +291,14 @@ class ApiPlusRepository extends PlusRepository {
   Future<void> deleteVehicle(String id) async {
     await _send('DELETE', '/v1/vehicles/${Uri.encodeComponent(id)}');
   }
+
+  @override
+  Future<Json> exportAccount() =>
+      _send('GET', '/v1/account/export', timeout: const Duration(seconds: 60));
+
+  @override
+  Future<Json> deleteAccount() =>
+      _send('DELETE', '/v1/account', timeout: const Duration(seconds: 60));
 
   @override
   Future<VehiclePhoto?> getVehicleImage(String id) async {

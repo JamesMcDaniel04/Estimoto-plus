@@ -1,3 +1,15 @@
+# Prepared source — account deletion, data export and legal pages, September 19, 2026
+
+This section describes source prepared on the `claude/app-feature-enhancement-uh7cqi` branch. It does **not** claim a deployment, a native build or a store submission; those are recorded when they happen.
+
+Customers can now delete their account from Settings, which App Store Review Guideline 5.1.1(v) and Google Play's account-deletion policy require of any app with sign-in. `DELETE /v1/account` cancels open shop requests (delivering the cancellation to the bridge first, or refusing with a retryable 409 when the bridge is unreachable), erases every customer-owned row and private file in one transaction, invalidates the verified-session cache and, when `SUPABASE_SERVICE_ROLE_KEY` is set on the server, removes the Supabase Auth user. `GET /v1/account/export` returns a complete JSON copy of the account, offered in Settings as **Download my data**. Settings also links a new app-wide [privacy policy](https://estimoto-plus-api.fly.dev/privacy.html) and [terms of use](https://estimoto-plus-api.fly.dev/terms.html), open-source licenses and support email; the welcome screen links the two legal pages. The pages describe the current processors in source (Supabase, the Estimoto shop bridge, Resend, Nango, OpenStreetMap, Zippopotam.us, Google Maps, CarsXE and the optional assistant model) and should be reviewed by counsel before the store listing cites them.
+
+Platform metadata: an iOS privacy manifest (`PrivacyInfo.xcprivacy`, no tracking, collected data types declared) is bundled by the Xcode project; `Info.plist` enables Files sharing for the export; the Android manifest declares `https`, `tel` and `mailto` intent queries so shop links, calls and support email open on Android 11+. Backend hardening: per-account caps (50 vehicles, 500 estimates, 500 reminders), pruning of rate counters older than 48 hours, and a JSON 500 handler that keeps the private no-store headers. The stale migration head in the backend README and API contract now reads `d9e4b82013c7`.
+
+Verified locally on this branch: 450 backend tests passed with 37 environment-gated skips (the 6 receipt OCR/Places cases that need tesseract, poppler and a serialized SQLite writer failed identically before these changes and are unrelated); Flutter analysis clean and all app tests passed, including new Settings, welcome and repository tests. Not verified: a live deployment, `SUPABASE_SERVICE_ROLE_KEY` on the production machine, a native build, and store submission with the new privacy manifest.
+
+Remaining before a public launch: set the service-role secret on Fly, deploy, resolve the GitHub Actions billing lock so hosted CI runs, obtain Apple external beta approval and Google Play publication, and prove physical-device capture and the first real shop handoff as listed below.
+
 # Current web release — no safe-area insets around the capture dialog, September 15, 2026
 
 The capture page at `/capture/` now vendors original Estimoto

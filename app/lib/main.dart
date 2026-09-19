@@ -198,6 +198,19 @@ class _PlusLauncherState extends State<PlusLauncher> {
     if (mounted && controller != null) _clearController();
   }
 
+  /// The server has already erased the account; only the local session is
+  /// left. A failed local sign-out must not keep a deleted account on screen.
+  Future<void> _accountDeleted() async {
+    if (controller?.repository.isDemo != true && widget.auth != null) {
+      try {
+        await widget.auth!.signOut();
+      } catch (_) {
+        // The identity may already be gone upstream; the local session ends regardless.
+      }
+    }
+    if (mounted && controller != null) _clearController();
+  }
+
   @override
   void dispose() {
     authSubscription?.cancel();
@@ -212,6 +225,7 @@ class _PlusLauncherState extends State<PlusLauncher> {
         key: ObjectKey(controller),
         controller: controller!,
         onExit: _exit,
+        onAccountDeleted: _accountDeleted,
       );
     }
     return MaterialApp(

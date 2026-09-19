@@ -27,6 +27,12 @@ Allow `io.estimoto.plus://login-callback/` in the Supabase Auth redirect configu
 
 A development API token can be supplied as `PLUS_DEV_TOKEN` in an ignored local configuration for debug builds only. Never include development tokens in a release configuration. Use `http://127.0.0.1:8000` from an iOS simulator or desktop, and `http://10.0.2.2:8000` from an Android emulator. Production origins require HTTPS. Browser API access additionally requires the backend's explicit CORS allowlist.
 
+## Account, legal and platform metadata
+
+Settings offers **Download my data** (a JSON export; the browser downloads it, iOS saves it under Files › On My iPhone › Estimoto +, and every platform can copy it to the clipboard) and **Delete my account**, which requires typing `DELETE`, calls the server's permanent deletion and then signs out locally. The demo explains that it has no account to delete. Settings also links the privacy policy, terms of use, open-source licenses and support email; the welcome screen links the terms and privacy policy. Those pages live in `web/` (`privacy.html`, `terms.html`) and are served from the API origin; links follow `PLUS_API_URL` and fall back to the production origin in demo builds.
+
+`ios/Runner/PrivacyInfo.xcprivacy` declares the collected data types (no tracking) and is bundled by the Xcode project; `Info.plist` enables Files sharing so the export is reachable. `AndroidManifest.xml` declares `https`, `tel` and `mailto` intent queries so shop websites, calls and support email open on Android 11+.
+
 ## Checks
 
 ```sh

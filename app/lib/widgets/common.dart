@@ -264,6 +264,20 @@ Future<void> openExternal(
   }
 }
 
+/// Opens the customer's mail app addressed to support, never a web page.
+Future<void> openSupportEmail(BuildContext context, String address) async {
+  final uri = Uri(scheme: 'mailto', path: address);
+  try {
+    if (!await launchUrl(uri) && context.mounted) {
+      showMessage(context, 'No mail app is available. Email $address.');
+    }
+  } catch (_) {
+    if (context.mounted) {
+      showMessage(context, 'No mail app is available. Email $address.');
+    }
+  }
+}
+
 String mileageText(int value) => value.toString().replaceAllMapped(
   RegExp(r'(\d)(?=(\d{3})+(?!\d))'),
   (m) => '${m[1]},',

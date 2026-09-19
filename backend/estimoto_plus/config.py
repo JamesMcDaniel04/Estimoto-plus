@@ -23,6 +23,8 @@ class Settings:
     environment: str = field(default_factory=lambda: os.getenv("ENVIRONMENT", "production"))
     supabase_url: str = field(default_factory=lambda: os.getenv("SUPABASE_URL", ""))
     supabase_publishable_key: str = field(default_factory=lambda: os.getenv("SUPABASE_PUBLISHABLE_KEY", ""))
+    # Server-only. Lets account deletion remove the Auth identity as well as the customer's data.
+    supabase_service_role_key: str = field(default_factory=lambda: os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""), repr=False)
     bridge_url: str = field(default_factory=lambda: os.getenv("BRIDGE_REQUEST_URL", ""))
     estimate_bridge_url: str = field(default_factory=lambda: os.getenv("BRIDGE_ESTIMATE_URL", ""))
     bridge_key: str = field(default_factory=lambda: os.getenv("BRIDGE_KEY", ""))

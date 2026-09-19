@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../brand_assets.dart';
+import '../plus_links.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 import '../widgets/vehicle_illustration.dart';
@@ -232,6 +233,26 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
             'Demo activity stays in the preview. No shops or technicians are contacted.',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 12, color: PlusColors.muted),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'By continuing you agree to our terms and privacy policy.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: PlusColors.muted),
+          ),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 4,
+            children: [
+              TextButton(
+                onPressed: () => openExternal(context, termsOfUseUrl),
+                child: const Text('Terms of use'),
+              ),
+              TextButton(
+                onPressed: () => openExternal(context, privacyPolicyUrl),
+                child: const Text('Privacy policy'),
+              ),
+            ],
           ),
         ],
       ),

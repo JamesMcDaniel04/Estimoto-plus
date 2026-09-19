@@ -10,9 +10,10 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from urllib.parse import urlparse
-from sqlalchemy import create_engine, event, text as sql_text
+from sqlalchemy import create_engine, delete, event, text as sql_text
 from sqlalchemy.orm import sessionmaker
 
+from .account import router as account_router
 from .auth import create_auth_client, dev_allowed, make_dev_token
 from .auth_cache import VerifiedAuthCache
 from .bridge import router as bridge_router
@@ -21,7 +22,7 @@ from .config import Settings
 from .customer_routes import router as customer_router
 from .delivery import deliver_batch
 from .estimate_delivery import deliver_estimate_batch
-from .models import Base, Customer, Provider, Vehicle
+from .models import Base, Customer, Provider, RateBucket, Vehicle, now
 from . import shop_models  # register private saved-shop tables before test metadata creation
 from .saved_shops import router as saved_shops_router, deliver_shop_batch
 from .graph import router as graph_router
@@ -40,6 +41,16 @@ from .shop_media_catalog import router as shop_media_router
 # Readiness fails closed until the database carries exactly this migration.
 # tests/test_readiness.py keeps it equal to the Alembic head.
 EXPECTED_SCHEMA_REVISION = "d9e4b82013c7"
+RATE_BUCKET_RETENTION_HOURS = 48
+
+
+def prune_rate_buckets(session_factory):
+    """Hourly rate counters only matter for the current hour; drop the rest so the table stays bounded."""
+    cutoff = int(now().timestamp() // 3600) - RATE_BUCKET_RETENTION_HOURS
+    with session_factory() as db:
+        removed = db.execute(delete(RateBucket).where(RateBucket.hour_bucket < cutoff)).rowcount
+        db.commit()
+    return removed
 
 
 def create_app(settings: Settings | None = None, *, auth_verifier=None, auth_client=None, bridge_transport=None):
@@ -81,6 +92,7 @@ def create_app(settings: Settings | None = None, *, auth_verifier=None, auth_cli
                     provider_ticks += settings.worker_interval_seconds
                     if provider_ticks >= 300:
                         await asyncio.to_thread(sync_providers, settings, app.state.bridge_transport, app.state.session_factory)
+                        await asyncio.to_thread(prune_rate_buckets, app.state.session_factory)
                         provider_ticks = 0
                     await asyncio.to_thread(deliver_batch, settings, app.state.bridge_transport, app.state.session_factory)
                     await asyncio.to_thread(sync_request_statuses, settings, app.state.bridge_transport, app.state.session_factory)
@@ -151,6 +163,18 @@ def create_app(settings: Settings | None = None, *, auth_verifier=None, auth_cli
     @app.exception_handler(RequestValidationError)
     def validation_error(_request, _exc):
         return JSONResponse(status_code=422, content={"detail": "Invalid request fields."})
+
+    @app.exception_handler(Exception)
+    async def unexpected_error(request, exc):
+        # Starlette's server-error path runs outside the privacy middleware, so
+        # the response carries the same headers here and never a stack trace.
+        logging.getLogger(__name__).exception("Unhandled error on %s %s", request.method, request.url.path)
+        headers = {"Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer",
+                   "X-Content-Type-Options": "nosniff"}
+        if production:
+            headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+            headers["X-Frame-Options"] = "DENY"
+        return JSONResponse(status_code=500, content={"detail": "Something went wrong. Please try again."}, headers=headers)
     engine_kwargs = ({"connect_args": {"check_same_thread": False}} if settings.database_url.startswith("sqlite") else
                      {"connect_args": {"sslmode": "require"} if settings.environment == "production" else {},
                       "pool_pre_ping": True, "pool_size": 5, "max_overflow": 5,
@@ -175,6 +199,7 @@ def create_app(settings: Settings | None = None, *, auth_verifier=None, auth_cli
     app.state.capture_transport = None
     app.state.discovery_transport = None
     app.include_router(customer_router)
+    app.include_router(account_router)
     app.include_router(bridge_router)
     app.include_router(saved_shops_router)
     app.include_router(graph_router)

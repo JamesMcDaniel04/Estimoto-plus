@@ -624,6 +624,23 @@ class DemoPlusRepository extends PlusRepository {
   }
 
   @override
+  Future<Json> exportAccount() async => {
+    'format': 'estimoto-plus/1',
+    'demo': true,
+    'exported_at': DateTime.now().toUtc().toIso8601String(),
+    'notes': 'Fictional demo data. Nothing here describes a real customer.',
+    ...jsonDecode(jsonEncode(_state)) as Json,
+    'service_history': {'records': jsonDecode(jsonEncode(_history))},
+    'my_shops': jsonDecode(jsonEncode(_shops)),
+    'shop_requests': jsonDecode(jsonEncode(_outreach)),
+  };
+
+  @override
+  Future<Json> deleteAccount() async => throw const PlusApiException(
+    'The demo has no account to delete. Leave the demo to discard its sample data.',
+  );
+
+  @override
   Future<Json> saveVehicle(Json body, {String? id}) async {
     if ((body['make'] as String? ?? '').trim().isEmpty ||
         (body['model'] as String? ?? '').trim().isEmpty) {

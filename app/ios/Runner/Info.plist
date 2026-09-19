@@ -74,6 +74,10 @@
 	<string>Choose vehicle photos to attach to your estimate.</string>
 	<key>FlutterDeepLinkingEnabled</key>
 	<false/>
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

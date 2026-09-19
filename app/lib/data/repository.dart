@@ -42,6 +42,16 @@ abstract class PlusRepository {
       throw const PlusApiException('Past lookups cannot be removed right now.');
   Future<PlusSnapshot> bootstrap();
   Future<Json> saveProfile(Json body);
+
+  /// Everything the customer owns, as one JSON document.
+  Future<Json> exportAccount() => throw const PlusApiException(
+    'Data download is available for signed-in accounts.',
+  );
+
+  /// Permanently erases the account. The caller signs out afterwards.
+  Future<Json> deleteAccount() => throw const PlusApiException(
+    'Account deletion is available for signed-in accounts.',
+  );
   Future<Json> saveVehicle(Json body, {String? id});
   Future<void> deleteVehicle(String id);
   Future<VehiclePhoto?> getVehicleImage(String id) async => null;

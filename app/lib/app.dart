@@ -15,23 +15,38 @@ import 'widgets/customer_navigation.dart';
 import 'widgets/pending_capture_notice.dart';
 
 class EstimotoPlusApp extends StatelessWidget {
-  const EstimotoPlusApp({super.key, required this.controller, this.onExit});
+  const EstimotoPlusApp({
+    super.key,
+    required this.controller,
+    this.onExit,
+    this.onAccountDeleted,
+  });
   final PlusController controller;
   final VoidCallback? onExit;
+  final VoidCallback? onAccountDeleted;
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'Estimoto +',
     debugShowCheckedModeBanner: false,
     theme: plusTheme(),
     navigatorObservers: [plusRouteObserver],
-    home: _HomeShell(controller: controller, onExit: onExit),
+    home: _HomeShell(
+      controller: controller,
+      onExit: onExit,
+      onAccountDeleted: onAccountDeleted,
+    ),
   );
 }
 
 class _HomeShell extends StatefulWidget {
-  const _HomeShell({required this.controller, this.onExit});
+  const _HomeShell({
+    required this.controller,
+    this.onExit,
+    this.onAccountDeleted,
+  });
   final PlusController controller;
   final VoidCallback? onExit;
+  final VoidCallback? onAccountDeleted;
   @override
   State<_HomeShell> createState() => _HomeShellState();
 }
@@ -126,7 +141,12 @@ class _HomeShellState extends State<_HomeShell> with WidgetsBindingObserver {
                   ),
               ],
               onSelected: (value) => value == 'settings'
-                  ? SettingsScreen.open(context, c, onExit: widget.onExit)
+                  ? SettingsScreen.open(
+                      context,
+                      c,
+                      onExit: widget.onExit,
+                      onAccountDeleted: widget.onAccountDeleted,
+                    )
                   : widget.onExit?.call(),
             ),
           ],
@@ -191,7 +211,11 @@ class _HomeShellState extends State<_HomeShell> with WidgetsBindingObserver {
                     : IndexedStack(
                         index: c.tab,
                         children: [
-                          GarageScreen(controller: c, onExit: widget.onExit),
+                          GarageScreen(
+                            controller: c,
+                            onExit: widget.onExit,
+                            onAccountDeleted: widget.onAccountDeleted,
+                          ),
                           EstimatesScreen(controller: c),
                           EstibotScreen(controller: c),
                           RepairsScreen(controller: c),

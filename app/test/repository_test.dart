@@ -10,6 +10,7 @@ import 'package:estimoto_plus/data/demo_repository.dart';
 import 'package:estimoto_plus/data/repository.dart';
 
 void main() {
+  _accountTests();
   test(
     'API sends bearer and idempotency key to the configured origin',
     () async {
@@ -329,4 +330,59 @@ void main() {
       ),
     );
   });
+}
+
+void _accountTests() {
+  test('API export and deletion use the account routes', () async {
+    final calls = <String>[];
+    final repository = ApiPlusRepository(
+      baseUrl: 'https://plus.example.com',
+      token: () async => 'verified-token',
+      client: MockClient((request) async {
+        calls.add('${request.method} ${request.url.path}');
+        expect(request.headers['Authorization'], 'Bearer verified-token');
+        return http.Response(
+          request.method == 'GET'
+              ? '{"format":"estimoto-plus/1","vehicles":[]}'
+              : '{"deleted":true,"sign_in_removed":true}',
+          200,
+        );
+      }),
+    );
+    expect((await repository.exportAccount())['format'], 'estimoto-plus/1');
+    expect((await repository.deleteAccount())['deleted'], isTrue);
+    expect(calls, ['GET /v1/account/export', 'DELETE /v1/account']);
+  });
+
+  test('API surfaces the server wording for open-request conflicts', () async {
+    final repository = ApiPlusRepository(
+      baseUrl: 'https://plus.example.com',
+      token: () async => 'verified-token',
+      client: MockClient(
+        (_) async => http.Response(
+          '{"detail":"A shop could not be notified yet. Please try again in a few minutes.","code":"open_requests"}',
+          409,
+        ),
+      ),
+    );
+    try {
+      await repository.deleteAccount();
+      fail('expected a conflict');
+    } on PlusApiException catch (error) {
+      expect(error.statusCode, 409);
+      expect(error.code, 'open_requests');
+      expect(error.message, contains('could not be notified yet'));
+    }
+  });
+
+  test(
+    'demo export is labelled fictional and demo deletion is refused',
+    () async {
+      final repository = DemoPlusRepository();
+      final export = await repository.exportAccount();
+      expect(export['demo'], isTrue);
+      expect(export['profile'], isA<Map>());
+      expect(repository.deleteAccount(), throwsA(isA<PlusApiException>()));
+    },
+  );
 }

@@ -33,6 +33,10 @@ ESTIMATE_PHOTO_KEYS = DOCUMENT_KEYS
 PDR_PANEL_TYPES = ("hood", "fender_left", "front_door_left", "rear_door_left", "quarter_left", "trunk",
                    "quarter_right", "rear_door_right", "front_door_right", "fender_right", "roof")
 MAX_PHOTOS_PER_ESTIMATE = 40
+# Generous per-account ceilings so a runaway client cannot grow a garage without bound.
+MAX_VEHICLES_PER_CUSTOMER = 50
+MAX_ESTIMATES_PER_CUSTOMER = 500
+MAX_REMINDERS_PER_CUSTOMER = 500
 MAX_CUSTOMER_PHOTO_BYTES = 250 * 1024 * 1024
 MAX_PHOTO_UPLOADS_PER_HOUR = 100
 MAX_ESTIMATE_SUBMITS_PER_HOUR = 20
@@ -55,6 +59,13 @@ def iso(value):
     if value is None:
         return None
     return value.isoformat() if hasattr(value, "isoformat") else value
+
+
+def enforce_cap(db, model, customer_id, limit, noun):
+    from sqlalchemy import func
+    if db.scalar(select(func.count(model.id)).where(model.customer_id == customer_id)) >= limit:
+        raise HTTPException(409, {"detail": f"You have reached the limit of {limit} {noun}. Remove one to add another.",
+                                  "code": "limit_reached"})
 
 
 def profile(c):
@@ -158,6 +169,7 @@ def update_profile(body: ProfileWrite, c: Customer = Depends(current_customer), 
 
 @router.post("/vehicles", status_code=201)
 def create_vehicle(body: VehicleCreate, c: Customer = Depends(current_customer), db: Session = Depends(db_session)):
+    enforce_cap(db, Vehicle, c.id, MAX_VEHICLES_PER_CUSTOMER, "vehicles")
     v = Vehicle(customer_id=c.id, **body.model_dump())
     db.add(v)
     db.commit()
@@ -344,6 +356,7 @@ def cancel_request(request_id: str, c: Customer = Depends(current_customer), db:
 @router.post("/estimates", status_code=201)
 def create_estimate(body: EstimateCreate, c: Customer = Depends(current_customer), db: Session = Depends(db_session)):
     owned(db, Vehicle, body.vehicle_id, c)
+    enforce_cap(db, Estimate, c.id, MAX_ESTIMATES_PER_CUSTOMER, "estimates")
     e = Estimate(customer_id=c.id, vehicle_id=body.vehicle_id, discipline=body.discipline,
                  description=body.description, claim_number=body.claim_number, date_of_loss=iso(body.date_of_loss))
     db.add(e)
@@ -542,6 +555,7 @@ def delete_photo(estimate_id: str, photo_id: str, request: Request, c: Customer 
 @router.post("/reminders", status_code=201)
 def create_reminder(body: ReminderCreate, c: Customer = Depends(current_customer), db: Session = Depends(db_session)):
     owned(db, Vehicle, body.vehicle_id, c)
+    enforce_cap(db, Reminder, c.id, MAX_REMINDERS_PER_CUSTOMER, "reminders")
     r = Reminder(customer_id=c.id, vehicle_id=body.vehicle_id, title=body.title,
                  due_date=iso(body.due_date), due_mileage=body.due_mileage)
     db.add(r)
