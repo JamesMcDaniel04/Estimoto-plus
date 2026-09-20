@@ -34,10 +34,51 @@ class _HistoryScreenState extends WorkspaceState<HistoryScreen> {
   bool? uncertainPreference;
   int generation = 0;
   ReceiptPending? pendingReceipt;
+  final search = TextEditingController();
+  String category = 'All';
+  String? filterVehicleId;
+
   @override
   void initState() {
     super.initState();
+    filterVehicleId = controller.selectedVehicle?.id;
     load();
+  }
+
+  @override
+  void changed() {
+    final vehicleId = controller.selectedVehicle?.id;
+    if (filterVehicleId != vehicleId) {
+      filterVehicleId = vehicleId;
+      search.clear();
+      category = 'All';
+    }
+    super.changed();
+  }
+
+  @override
+  void dispose() {
+    search.dispose();
+    super.dispose();
+  }
+
+  void clearFilters() {
+    setState(() {
+      search.clear();
+      category = 'All';
+    });
+  }
+
+  int newestFirst(Json a, Json b) {
+    for (final field in ['service_date', 'created_at']) {
+      final aDate = DateTime.tryParse(textOf(a, field));
+      final bDate = DateTime.tryParse(textOf(b, field));
+      final order = aDate == null
+          ? (bDate == null ? 0 : 1)
+          : (bDate == null ? -1 : bDate.compareTo(aDate));
+      if (order != 0) return order;
+    }
+    return textOf(a, 'id').compareTo(textOf(b, 'id'));
   }
 
   Future<void> load() async {
@@ -163,9 +204,31 @@ class _HistoryScreenState extends WorkspaceState<HistoryScreen> {
   Widget build(BuildContext context) {
     if (!current) return unavailable;
     final vehicle = controller.selectedVehicle;
-    final visible = records
-        .where((r) => vehicle == null || r['vehicle_id'] == vehicle.id)
-        .toList();
+    final vehicleRecords =
+        records
+            .where((r) => vehicle != null && r['vehicle_id'] == vehicle.id)
+            .toList()
+          ..sort(newestFirst);
+    final terms = search.text
+        .trim()
+        .toLowerCase()
+        .split(RegExp(r'\s+'))
+        .where((term) => term.isNotEmpty);
+    final visible = vehicleRecords.where((record) {
+      if (category != 'All' &&
+          historyCategory(textOf(record, 'service_type')) != category) {
+        return false;
+      }
+      final content = [
+        serviceName(textOf(record, 'service_type')),
+        textOf(record, 'shop_name'),
+        textOf(record, 'parts_source'),
+        textOf(record, 'parts_description'),
+        textOf(record, 'notes'),
+      ].join(' ').toLowerCase();
+      return terms.every(content.contains);
+    }).toList();
+    final filtered = search.text.isNotEmpty || category != 'All';
     return Scaffold(
       appBar: AppBar(
         title: const Text('Service history & receipts'),
@@ -220,7 +283,7 @@ class _HistoryScreenState extends WorkspaceState<HistoryScreen> {
                     : () => openReceipts(pendingReceipt!.recordId),
               ),
             ),
-          if (visible.any((r) => r['cost_cents'] is int)) ...[
+          if (vehicleRecords.any((r) => r['cost_cents'] is int)) ...[
             const SectionHeading('Documented costs'),
             Card(
               child: Padding(
@@ -237,7 +300,7 @@ class _HistoryScreenState extends WorkspaceState<HistoryScreen> {
                       ReviewBlock(
                         category,
                         receiptCost(
-                          visible
+                          vehicleRecords
                               .where(
                                 (r) =>
                                     historyCategory(
@@ -256,7 +319,7 @@ class _HistoryScreenState extends WorkspaceState<HistoryScreen> {
                         ),
                       ),
                     const Text(
-                      'Your recorded spending in USD. Costs are not an estimate of resale value.',
+                      'All records for this vehicle, regardless of filters. Your recorded spending in USD. Costs are not an estimate of resale value.',
                     ),
                   ],
                 ),
@@ -264,12 +327,71 @@ class _HistoryScreenState extends WorkspaceState<HistoryScreen> {
             ),
           ],
           const SectionHeading('Your service records'),
-          if (!loading && visible.isEmpty)
+          if (vehicleRecords.isNotEmpty) ...[
+            TextField(
+              controller: search,
+              decoration: InputDecoration(
+                labelText: 'Search service history',
+                hintText: 'Service, shop, parts or notes',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: search.text.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Clear search',
+                        onPressed: () => setState(search.clear),
+                        icon: const Icon(Icons.clear),
+                      ),
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final option in [
+                  'All',
+                  'Repairs',
+                  'Maintenance',
+                  'Modifications',
+                  'Other',
+                ])
+                  ChoiceChip(
+                    label: Text(option),
+                    selected: category == option,
+                    onSelected: (_) => setState(() => category = option),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Semantics(
+              liveRegion: true,
+              child: Text(
+                'Showing ${visible.length} of ${vehicleRecords.length} ${vehicleRecords.length == 1 ? 'record' : 'records'}',
+              ),
+            ),
+            const Text('Newest service first'),
+            if (filtered)
+              TextButton.icon(
+                onPressed: clearFilters,
+                icon: const Icon(Icons.filter_alt_off_outlined),
+                label: const Text('Clear filters'),
+              ),
+            const SizedBox(height: 12),
+          ],
+          if (!loading && vehicleRecords.isEmpty)
             const EmptyState(
               icon: Icons.history_outlined,
               title: 'Start with your last service',
               message:
                   'Save its date, mileage, shop and any parts details you want to remember.',
+            ),
+          if (!loading && vehicleRecords.isNotEmpty && visible.isEmpty)
+            const EmptyState(
+              icon: Icons.search_off,
+              title: 'No matching service records',
+              message:
+                  'Try another search or clear your filters to see this vehicle’s history.',
             ),
           for (final record in visible)
             Padding(
@@ -441,7 +563,7 @@ class _HistoryEditorState extends WorkspaceState<HistoryEditor> {
       for (final entry in fields.entries) {
         final value = record[entry.key];
         entry.value.text = entry.key == 'cost_cents' && value is int
-            ? receiptCost(value).substring(1)
+            ? receiptCost(value).substring(1).replaceAll(',', '')
             : value?.toString() ?? '';
       }
       restoring = false;
@@ -467,7 +589,9 @@ class _HistoryEditorState extends WorkspaceState<HistoryEditor> {
           for (final entry in fields.entries) {
             entry.value.text =
                 entry.key == 'cost_cents' && saved.body[entry.key] is int
-                ? receiptCost(saved.body[entry.key] as int).substring(1)
+                ? receiptCost(
+                    saved.body[entry.key] as int,
+                  ).substring(1).replaceAll(',', '')
                 : saved.body[entry.key]?.toString() ?? '';
           }
         }
@@ -525,10 +649,20 @@ class _HistoryEditorState extends WorkspaceState<HistoryEditor> {
           };
       if (editing) {
         final changes = Map<String, dynamic>.from(body)..remove('vehicle_id');
-        await workspace.updateHistory(textOf(widget.record!, 'id'), changes);
+        final result = await workspace.updateHistory(
+          textOf(widget.record!, 'id'),
+          changes,
+        );
         if (mounted && active) {
           controller.historyChanged();
-          Navigator.pop(context, widget.record);
+          if (attach == null) {
+            Navigator.pop(context, result);
+          } else {
+            setState(() {
+              savedRecord = result;
+              receiptChoice = attach;
+            });
+          }
         }
         return;
       }
@@ -643,7 +777,7 @@ class _HistoryEditorState extends WorkspaceState<HistoryEditor> {
                   'Photos or PDFs · Up to 10 MB each · Private to you',
                 ),
                 const SectionHeading('Service details'),
-                if (pending != null)
+                if (pending != null || editing)
                   ReviewBlock(
                     'Saved vehicle',
                     controller.snapshot!.vehicle(vehicleId ?? '')?.title ??
@@ -658,6 +792,8 @@ class _HistoryEditorState extends WorkspaceState<HistoryEditor> {
                       vehicleId = value;
                     }),
                   ),
+                if (editing)
+                  const Text('This entry stays with its original vehicle.'),
                 const SizedBox(height: 18),
                 DropdownButtonFormField<String>(
                   key: ValueKey('history-type-$type'),

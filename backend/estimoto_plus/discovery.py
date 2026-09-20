@@ -302,18 +302,27 @@ def favorites(vehicle_id: str, c: Customer = Depends(current_customer), db: Sess
 
 @router.put('/favorites/{specialty}')
 def set_favorite(specialty: Specialty, body: FavoriteWrite, request: Request, c: Customer = Depends(current_customer), db: Session = Depends(db_session)):
-    lock_customer(db, c.id)
-    owned_vehicle(db, body.vehicle_id, c.id)
+    customer_id = c.id
+    google_source = None
+    if body.source == 'google_places':
+        # Reject foreign vehicles before paid I/O. The budget owns a separate
+        # transaction, so release this read before validating the live listing.
+        owned_vehicle(db, body.vehicle_id, customer_id)
+        db.rollback()
+        try:
+            google_source = google_places.validate_place(request.app.state.session_factory,
+                request.app.state.discovery_transport, request.app.state.settings, body.source_id)
+        except DirectoryUnavailable:
+            raise HTTPException(503, 'The shop could not be verified. Please try again later.') from None
+    # Lock only for the write and reload ownership after any provider I/O.
+    lock_customer(db, customer_id)
+    owned_vehicle(db, body.vehicle_id, customer_id)
     if body.source == 'estimoto':
         source = db.scalar(select(Provider).where(Provider.source_id == body.source_id, Provider.public_visible.is_(True), Provider.demo_only.is_(c.demo)))
     elif body.source == 'official_website':
         source = official_shops.catalog().get(body.source_id)
     elif body.source == 'google_places':
-        try:
-            source = google_places.validate_place(request.app.state.session_factory,
-                request.app.state.discovery_transport, request.app.state.settings, body.source_id)
-        except DirectoryUnavailable:
-            raise HTTPException(503, 'The shop could not be verified. Please try again later.') from None
+        source = google_source
     elif body.source == 'my_shop':
         source = db.scalar(select(MyShop).where(MyShop.id == body.source_id, MyShop.customer_id == c.id, MyShop.deleted.is_(False)))
     else:
@@ -324,10 +333,10 @@ def set_favorite(specialty: Specialty, body: FavoriteWrite, request: Request, c:
             source = None
     if source is None:
         raise HTTPException(422, 'Choose an available listing or one of your saved shops.')
-    key = (c.id, body.vehicle_id, specialty)
+    key = (customer_id, body.vehicle_id, specialty)
     row = db.get(DedicatedShop, key)
     if row is None:
-        row = DedicatedShop(customer_id=c.id, vehicle_id=body.vehicle_id, specialty=specialty, source=body.source, source_id=body.source_id)
+        row = DedicatedShop(customer_id=customer_id, vehicle_id=body.vehicle_id, specialty=specialty, source=body.source, source_id=body.source_id)
         db.add(row)
     row.source, row.source_id = body.source, body.source_id
     db.commit()

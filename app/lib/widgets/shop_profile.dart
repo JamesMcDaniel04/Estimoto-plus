@@ -22,6 +22,7 @@ Future<ShopProfileAction?> showShopProfile(
   bool canRequest = false,
   bool canSave = false,
   bool canSaveContact = false,
+  bool contactOnly = false,
   List<String> favorites = const [],
 }) => showModalBottomSheet<ShopProfileAction>(
   context: context,
@@ -35,6 +36,7 @@ Future<ShopProfileAction?> showShopProfile(
       canRequest: canRequest,
       canSave: canSave,
       canSaveContact: canSaveContact,
+      contactOnly: contactOnly,
       favorites: favorites,
     ),
   ),
@@ -47,10 +49,11 @@ class ShopProfile extends StatelessWidget {
     this.canRequest = false,
     this.canSave = false,
     this.canSaveContact = false,
+    this.contactOnly = false,
     this.favorites = const [],
   });
   final ProviderProfile provider;
-  final bool canRequest, canSave, canSaveContact;
+  final bool canRequest, canSave, canSaveContact, contactOnly;
   final List<String> favorites;
 
   Future<void> open(BuildContext context, Uri uri) async {
@@ -117,7 +120,8 @@ class ShopProfile extends StatelessWidget {
               const Text('National customer service'),
           ],
           const SizedBox(height: 16),
-          if (!provider.independent &&
+          if (!contactOnly &&
+              !provider.independent &&
               canRequest &&
               provider.requestModes.isNotEmpty)
             Padding(
@@ -159,31 +163,33 @@ class ShopProfile extends StatelessWidget {
               ),
             ],
           ),
-          if (favorites.isNotEmpty) ...[
+          if (!contactOnly) ...[
+            if (favorites.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text('Your dedicated shop: ${favorites.join(', ')}'),
+            ],
             const SizedBox(height: 12),
-            Text('Your dedicated shop: ${favorites.join(', ')}'),
+            OutlinedButton.icon(
+              onPressed: canSave
+                  ? () => Navigator.pop(context, ShopProfileAction.save)
+                  : null,
+              icon: const Icon(Icons.star_border),
+              label: Text(
+                favorites.isEmpty
+                    ? 'Save as my dedicated shop'
+                    : 'Change or remove saved choice',
+              ),
+            ),
+            if (!canSave && favorites.isEmpty)
+              const Text('Choose a saved vehicle to save a dedicated shop.'),
+            if (canSaveContact && provider.source != 'google_places')
+              TextButton.icon(
+                onPressed: () =>
+                    Navigator.pop(context, ShopProfileAction.saveContact),
+                icon: const Icon(Icons.contact_page_outlined),
+                label: const Text('Save contact for reviewed scheduling'),
+              ),
           ],
-          const SizedBox(height: 12),
-          OutlinedButton.icon(
-            onPressed: canSave
-                ? () => Navigator.pop(context, ShopProfileAction.save)
-                : null,
-            icon: const Icon(Icons.star_border),
-            label: Text(
-              favorites.isEmpty
-                  ? 'Save as my dedicated shop'
-                  : 'Change or remove saved choice',
-            ),
-          ),
-          if (!canSave && favorites.isEmpty)
-            const Text('Choose a saved vehicle to save a dedicated shop.'),
-          if (canSaveContact && provider.source != 'google_places')
-            TextButton.icon(
-              onPressed: () =>
-                  Navigator.pop(context, ShopProfileAction.saveContact),
-              icon: const Icon(Icons.contact_page_outlined),
-              label: const Text('Save contact for reviewed scheduling'),
-            ),
           const SectionHeading('Services'),
           Wrap(
             spacing: 8,
@@ -209,7 +215,9 @@ class ShopProfile extends StatelessWidget {
           ],
           const SizedBox(height: 16),
           Text(
-            provider.independent
+            contactOnly
+                ? 'Contact the shop to discuss your estimate and confirm repair arrangements and appointment availability.'
+                : provider.independent
                 ? 'Call the shop to confirm services, pricing and appointment availability.'
                 : 'The provider will confirm availability and your appointment after you request help.',
           ),

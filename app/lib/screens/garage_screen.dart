@@ -12,52 +12,82 @@ import 'my_shops_screen.dart';
 import 'history_screen.dart';
 import 'vehicle_value_screen.dart';
 import 'settings_screen.dart';
+import '../services/reminder_status.dart';
+import '../widgets/workspace_widgets.dart';
 
-class GarageScreen extends StatelessWidget {
+class GarageScreen extends StatefulWidget {
   const GarageScreen({super.key, required this.controller, this.onExit});
   final PlusController controller;
   final VoidCallback? onExit;
 
-  Future<void> _complete(BuildContext context, ServiceReminder reminder) async {
+  @override
+  State<GarageScreen> createState() => _GarageScreenState();
+}
+
+class _GarageScreenState extends WorkspaceState<GarageScreen> {
+  @override
+  PlusController get controller => widget.controller;
+
+  Future<void> _setCompleted(ServiceReminder reminder, bool completed) async {
+    if (!active || busy) return;
+    final saved = controller.snapshot?.reminders
+        .where((row) => row.id == reminder.id)
+        .firstOrNull;
+    if (saved == null || saved.completed == completed) return;
     final messenger = ScaffoldMessenger.of(context);
+    setState(() => busy = true);
     try {
-      await controller.repository.completeReminder(reminder.id);
+      if (completed) {
+        await controller.repository.completeReminder(reminder.id);
+      } else {
+        await controller.repository.reopenReminder(reminder.id);
+      }
+      if (!active) return;
       await controller.refresh();
+      if (!active) return;
       messenger.showSnackBar(
         SnackBar(
-          content: const Text('Reminder completed'),
+          content: Text(completed ? 'Reminder completed' : 'Reminder reopened'),
           duration: const Duration(seconds: 6),
-          action: SnackBarAction(
-            label: 'Undo',
-            onPressed: () async {
-              try {
-                await controller.repository.reopenReminder(reminder.id);
-                await controller.refresh();
-              } catch (e) {
-                messenger.showSnackBar(
-                  SnackBar(content: Text(PlusController.readableError(e))),
-                );
-              }
-            },
-          ),
+          persist: false,
+          action: completed
+              ? SnackBarAction(
+                  label: 'Undo',
+                  onPressed: () => _setCompleted(reminder, false),
+                )
+              : null,
         ),
       );
     } catch (e) {
-      messenger.showSnackBar(
-        SnackBar(content: Text(PlusController.readableError(e))),
-      );
+      if (active) {
+        messenger.showSnackBar(
+          SnackBar(content: Text(PlusController.readableError(e))),
+        );
+      }
+    } finally {
+      if (active) setState(() => busy = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (!current) return const SizedBox.shrink();
     final data = controller.snapshot!;
     final vehicle = controller.selectedVehicle;
-    final reminders = data.reminders
-        .where(
-          (r) => !r.completed && (vehicle == null || r.vehicleId == vehicle.id),
-        )
-        .toList();
+    final now = DateTime.now();
+    final scoped = data.reminders.where(
+      (r) => vehicle != null && r.vehicleId == vehicle.id,
+    );
+    final reminders = sortReminders(
+      scoped.where((r) => !r.completed),
+      now: now,
+      mileage: vehicle?.mileage ?? 0,
+    );
+    final completed = sortReminders(
+      scoped.where((r) => r.completed),
+      now: now,
+      mileage: vehicle?.mileage ?? 0,
+    );
     return PageBody(
       children: [
         PageHeading(
@@ -66,7 +96,7 @@ class GarageScreen extends StatelessWidget {
           trailing: IconButton.filledTonal(
             tooltip: 'Your profile',
             onPressed: () =>
-                SettingsScreen.open(context, controller, onExit: onExit),
+                SettingsScreen.open(context, controller, onExit: widget.onExit),
             icon: const Icon(Icons.person_outline),
           ),
         ),
@@ -197,7 +227,7 @@ class GarageScreen extends StatelessWidget {
         SectionHeading(
           'Coming up',
           action: 'Add reminder',
-          onAction: vehicle == null
+          onAction: vehicle == null || busy
               ? null
               : () => addReminder(context, controller),
         ),
@@ -213,42 +243,19 @@ class GarageScreen extends StatelessWidget {
             child: Column(
               children: [
                 for (final reminder in reminders)
-                  ListTile(
-                    onTap: () =>
-                        addReminder(context, controller, reminder: reminder),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 18,
-                      vertical: 7,
-                    ),
-                    leading: const CircleAvatar(
-                      backgroundColor: Color(0xFFE9F5F3),
-                      child: Icon(
-                        Icons.build_outlined,
-                        color: Color(0xFF08796D),
-                        size: 21,
-                      ),
-                    ),
-                    title: Text(
-                      reminder.title,
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    subtitle: Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Text(
-                        [
-                          if (reminder.dueDate.isNotEmpty)
-                            dateText(reminder.dueDate),
-                          if (reminder.dueMileage != null)
-                            '${mileageText(reminder.dueMileage!)} miles',
-                        ].join(' or '),
-                      ),
-                    ),
-                    trailing: IconButton(
-                      tooltip: 'Mark reminder complete',
-                      icon: const Icon(Icons.check_circle_outline),
-                      onPressed: () => _complete(context, reminder),
-                    ),
-                  ),
+                  _reminderRow(reminder, now, vehicle!.mileage),
+              ],
+            ),
+          ),
+        if (completed.isNotEmpty)
+          Card(
+            child: ExpansionTile(
+              key: ValueKey('completed-reminders-${vehicle!.id}'),
+              title: Text('Completed reminders (${completed.length})'),
+              subtitle: const Text('Reopen, edit or delete a past reminder'),
+              children: [
+                for (final reminder in completed)
+                  _reminderRow(reminder, now, vehicle.mileage),
               ],
             ),
           ),
@@ -380,6 +387,67 @@ class GarageScreen extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _reminderRow(ServiceReminder reminder, DateTime now, int mileage) {
+    final status = ReminderStatus.forReminder(
+      reminder,
+      now: now,
+      mileage: mileage,
+    );
+    final color = reminder.completed
+        ? PlusColors.muted
+        : switch (status.urgency) {
+            ReminderUrgency.overdue => const Color(0xFFAF3F24),
+            ReminderUrgency.dueNow => PlusColors.blue,
+            ReminderUrgency.upcoming => const Color(0xFF08796D),
+          };
+    return ListTile(
+      key: ValueKey('reminder-${reminder.id}'),
+      onTap: busy
+          ? null
+          : () => addReminder(context, controller, reminder: reminder),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      title: Text(
+        reminder.title,
+        style: const TextStyle(fontWeight: FontWeight.w600),
+      ),
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              reminder.completed ? 'Completed' : status.label,
+              style: TextStyle(color: color, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              reminder.completed
+                  ? [
+                      if (reminder.dueDate.isNotEmpty)
+                        dateText(reminder.dueDate),
+                      if (reminder.dueMileage != null)
+                        '${mileageText(reminder.dueMileage!)} miles',
+                    ].join(' or ')
+                  : status.detail,
+            ),
+          ],
+        ),
+      ),
+      trailing: IconButton(
+        tooltip: reminder.completed
+            ? 'Reopen reminder'
+            : 'Mark reminder complete',
+        icon: Icon(
+          reminder.completed ? Icons.undo : Icons.check_circle_outline,
+          color: color,
+        ),
+        onPressed: busy
+            ? null
+            : () => _setCompleted(reminder, !reminder.completed),
+      ),
     );
   }
 }

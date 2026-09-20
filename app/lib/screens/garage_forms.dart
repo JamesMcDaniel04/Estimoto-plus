@@ -424,10 +424,12 @@ class _ReminderFormState extends State<_ReminderForm> {
   }
 
   Future<void> save() async {
+    if (busy) return;
     final miles = int.tryParse(mileage.text.trim());
     if (title.text.trim().isEmpty ||
         (date == null && miles == null) ||
-        (mileage.text.isNotEmpty && (miles == null || miles < 0))) {
+        (mileage.text.trim().isNotEmpty &&
+            (miles == null || miles < 0 || miles > 5000000))) {
       setState(() => error = 'Add a title and a valid date or mileage.');
       return;
     }
@@ -479,28 +481,54 @@ class _ReminderFormState extends State<_ReminderForm> {
         ],
         TextField(
           controller: title,
+          enabled: !busy,
           maxLength: 120,
           decoration: const InputDecoration(labelText: 'What needs attention?'),
         ),
         const SizedBox(height: 12),
-        OutlinedButton.icon(
-          onPressed: () async {
-            final value = await showDatePicker(
-              context: context,
-              initialDate: date ?? DateTime.now().add(const Duration(days: 30)),
-              firstDate: DateTime.now().subtract(const Duration(days: 365)),
-              lastDate: DateTime.now().add(const Duration(days: 3650)),
-            );
-            if (value != null && mounted) setState(() => date = value);
-          },
-          icon: const Icon(Icons.calendar_today_outlined),
-          label: Text(
-            date == null ? 'Choose a date' : dateText(date!.toIso8601String()),
-          ),
+        Wrap(
+          spacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            OutlinedButton.icon(
+              onPressed: busy
+                  ? null
+                  : () async {
+                      final initial =
+                          date ?? DateTime.now().add(const Duration(days: 30));
+                      final first = DateTime(1950);
+                      final last = DateTime.now().add(
+                        const Duration(days: 3650),
+                      );
+                      final value = await showDatePicker(
+                        context: context,
+                        initialDate: initial,
+                        firstDate: initial.isBefore(first) ? initial : first,
+                        lastDate: initial.isAfter(last) ? initial : last,
+                      );
+                      if (value != null && mounted) {
+                        setState(() => date = value);
+                      }
+                    },
+              icon: const Icon(Icons.calendar_today_outlined),
+              label: Text(
+                date == null
+                    ? 'Choose a date'
+                    : dateText(date!.toIso8601String()),
+              ),
+            ),
+            if (date != null)
+              IconButton(
+                tooltip: 'Clear reminder date',
+                onPressed: busy ? null : () => setState(() => date = null),
+                icon: const Icon(Icons.close),
+              ),
+          ],
         ),
         const SizedBox(height: 16),
         TextField(
           controller: mileage,
+          enabled: !busy,
           keyboardType: TextInputType.number,
           decoration: const InputDecoration(labelText: 'Or due at mileage'),
         ),

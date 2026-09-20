@@ -25,6 +25,64 @@ Future<void> _tap(WidgetTester tester, Finder finder) async {
 }
 
 void main() {
+  testWidgets('a saved reminder date can be cleared for mileage only', (
+    tester,
+  ) async {
+    final controller = await _app(tester);
+    final reminder = controller.snapshot!.reminders.first;
+    await _tap(tester, find.text(reminder.title));
+    await _tap(tester, find.byTooltip('Clear reminder date'));
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Or due at mileage'),
+      '62000',
+    );
+    await _tap(tester, find.text('Save reminder'));
+    final saved = controller.snapshot!.reminders.firstWhere(
+      (r) => r.id == reminder.id,
+    );
+    expect(saved.dueDate, isEmpty);
+    expect(saved.dueMileage, 62000);
+  });
+
+  testWidgets('clearing the only due condition requires a replacement', (
+    tester,
+  ) async {
+    final controller = await _app(tester);
+    final reminder = controller.snapshot!.reminders.first;
+    await _tap(tester, find.text(reminder.title));
+    await _tap(tester, find.byTooltip('Clear reminder date'));
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Or due at mileage'),
+      '',
+    );
+    await _tap(tester, find.text('Save reminder'));
+    expect(
+      find.text('Add a title and a valid date or mileage.'),
+      findsOneWidget,
+    );
+    expect(find.text('Edit reminder'), findsOneWidget);
+    expect(
+      controller.snapshot!.reminders
+          .firstWhere((r) => r.id == reminder.id)
+          .dueDate,
+      reminder.dueDate,
+    );
+  });
+
+  testWidgets('an older overdue date remains editable', (tester) async {
+    final controller = await _app(tester);
+    final reminder = controller.snapshot!.reminders.first;
+    await controller.repository.updateReminder(reminder.id, {
+      'due_date': '2020-01-01',
+    });
+    await controller.refresh();
+    await tester.pumpAndSettle();
+    await _tap(tester, find.text(reminder.title));
+    await _tap(tester, find.byIcon(Icons.calendar_today_outlined));
+    expect(find.byType(DatePickerDialog), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('a reminder can be opened, edited and deleted from the garage', (
     tester,
   ) async {

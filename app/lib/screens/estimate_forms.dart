@@ -6,6 +6,7 @@ import '../services/estimate_capture.dart';
 import '../services/estimate_capture_steps.dart';
 import '../widgets/estimate_capture_guide.dart';
 import '../widgets/estimate_submission_review.dart';
+import '../widgets/estimate_shop_followup.dart';
 import 'garage_forms.dart';
 import 'guided_capture_screen.dart';
 import '../widgets/workspace_widgets.dart';
@@ -525,6 +526,11 @@ class _EstimateDetailScreenState extends WorkspaceState<EstimateDetailScreen> {
                         ] else ...[
                           const SizedBox(height: 20),
                           EstimateProgress(estimate: estimate),
+                          const SizedBox(height: 16),
+                          EstimateShopFollowUp(
+                            controller: controller,
+                            estimate: estimate,
+                          ),
                           EstimatePhotoGallery(
                             controller: widget.controller,
                             estimate: estimate,

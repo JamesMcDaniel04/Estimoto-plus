@@ -93,7 +93,9 @@ def test_google_favorite_is_only_a_place_id_and_validates_live_identity(clients)
     vehicle, calls = configured(client)
     body = {'vehicle_id': vehicle, 'source': 'google_places', 'source_id': 'nyc-repair'}
     assert client.put('/v1/discovery/favorites/mechanical', headers=h('alice'), json=body).status_code == 200
+    count = len(calls)
     assert client.put('/v1/discovery/favorites/mechanical', headers=h('bob'), json=body).status_code == 404
+    assert len(calls) == count
     bad = {**body, 'source_id': '../api-keys'}
     count = len(calls)
     assert client.put('/v1/discovery/favorites/mechanical', headers=h('alice'), json=bad).status_code == 422
@@ -103,6 +105,57 @@ def test_google_favorite_is_only_a_place_id_and_validates_live_identity(clients)
         assert saved.source_id == 'nyc-repair'
         assert not db.scalars(select(PublicListing)).all()
     assert client.delete('/v1/discovery/favorites/mechanical', headers=h('alice'), params={'vehicle_id': vehicle}).status_code == 200
+
+
+@pytest.mark.parametrize('change', ['deleted', 'reassigned'])
+def test_google_favorite_rechecks_vehicle_after_unlocked_provider_io(clients, change):
+    from estimoto_plus.discovery_models import DedicatedShop, PlacesBudget
+    from estimoto_plus.models import Vehicle
+    client, _ = clients
+    vehicle, _ = configured(client)
+    assert client.get('/v1/bootstrap', headers=h('bob')).status_code == 200
+    calls = []
+
+    def respond(request):
+        calls.append(request)
+        assert request.url.path == '/v1/places/nyc-repair'
+        # A separate writer must be able to finish while Google is responding.
+        # The favorite must then use fresh ownership, not its pre-I/O object.
+        with client.app.state.session_factory() as db:
+            row = db.get(Vehicle, vehicle)
+            if change == 'deleted':
+                db.delete(row)
+            else:
+                row.customer_id = 'bob-id'
+            db.commit()
+        return httpx.Response(200, json=place())
+
+    client.app.state.discovery_transport = httpx.MockTransport(respond)
+    response = client.put('/v1/discovery/favorites/mechanical', headers=h('alice'), json={
+        'vehicle_id': vehicle, 'source': 'google_places', 'source_id': 'nyc-repair'})
+    assert response.status_code == 404
+    assert len(calls) == 1
+    with client.app.state.session_factory() as db:
+        assert not db.scalars(select(DedicatedShop)).all()
+        assert db.scalars(select(PlacesBudget)).one().requests == 1
+
+
+def test_google_favorite_failed_verification_preserves_choice_and_charges_budget(clients):
+    from estimoto_plus.discovery_models import DedicatedShop, DirectoryCache, PlacesBudget
+    client, _ = clients
+    vehicle, calls = configured(client, status=503)
+    with client.app.state.session_factory() as db:
+        db.add(DedicatedShop(customer_id='alice-id', vehicle_id=vehicle, specialty='mechanical',
+                             source='google_places', source_id='previous-shop'))
+        db.commit()
+    response = client.put('/v1/discovery/favorites/mechanical', headers=h('alice'), json={
+        'vehicle_id': vehicle, 'source': 'google_places', 'source_id': 'nyc-repair'})
+    assert response.status_code == 503
+    assert len(calls) == 1
+    with client.app.state.session_factory() as db:
+        assert db.scalars(select(DedicatedShop)).one().source_id == 'previous-shop'
+        assert db.scalars(select(PlacesBudget)).one().requests == 1
+        assert db.get(DirectoryCache, 'places:cooldown') is not None
 
 
 def test_places_failure_has_cooldown_and_public_fallback(clients):
