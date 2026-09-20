@@ -32,15 +32,18 @@ Open `http://127.0.0.1:4318`. Production customer sessions use the dedicated aut
 
 The local September 19 improvements add reminder urgency and completed-reminder
 management, searchable service history, reliable receipt attachment while editing,
-and contact options for the shop reviewing an estimate. See the
+and contact options for the shop reviewing an estimate. The next parity pass adds
+vehicle/search filters for estimates and repairs, scheduled-request cancellation,
+saved-photo review and retakes inside guided capture, and consistent demo request
+and vehicle rules. See the [parity validation notes](docs/qa/2026-09-19-parity-improvements.md) and
 [implementation and validation notes](docs/qa/2026-09-19-feature-completion.md)
 for scope and remaining release checks.
 
 | Area | Implemented |
 | --- | --- |
 | Garage | Saved contact details, multiple vehicles, mileage and optional insurance; date/mileage reminders with overdue/due/upcoming status, editable dates and a completed list you can reopen; representative CarsXE photos or private camera/gallery uploads |
-| Estimates | PDR/Collision tabs, guided required-photo capture, private readback, editable and deletable unshared drafts and photos, durable handoff to a selected Estimoto shop, reviewed estimate status and selected-shop contact options |
-| Repairs | Shop-supplied timelines and update dates, request delivery/response status, cancellation |
+| Estimates | PDR/Collision tabs with vehicle, status and search filters; guided required-photo capture with private saved-photo review and retakes; editable and deletable unshared drafts and photos, durable handoff to a selected Estimoto shop, reviewed estimate status and selected-shop contact options |
+| Repairs | Searchable timelines and requests with vehicle/activity filters and latest-update ordering; request delivery/response status, provider contact options and cancellation through scheduled status |
 | Find Help | Participating shops/techs and reviewed local businesses within 30 miles; up to 30 results, real shop artwork, contact details, mini profiles and vehicle-specific dedicated shops |
 | Estibot | Guided estimate and routine-care topics, technician matching, saved-shop scheduling, private graph retrieval over service history, and labeled YouTube search links |
 | My shops | Private shop contacts, reviewed customer-authorized scheduling requests that can be discarded or withdrawn, and explicit shop acceptance |

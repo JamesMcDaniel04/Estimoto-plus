@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:estimoto_plus/data/demo_repository.dart';
 import 'package:estimoto_plus/data/repository.dart';
@@ -14,23 +15,39 @@ class CaptureApiFake extends GuidedCaptureApi {
   final calls = <String>[];
   final saves = <GuidedCapturePending>[];
   Completer<Json>? saving;
+  Completer<Json>? readingState;
   PlusApiException? saveError;
   bool superseded = false;
+  List<Json>? photos;
+  Uint8List readBytes = base64Decode(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=',
+  );
+  String readMime = 'image/png';
+  Completer<({Uint8List bytes, String mimeType})>? reading;
+  @override
+  Future<({Uint8List bytes, String mimeType})> readPhoto(String photoId) async {
+    calls.add('read:$photoId');
+    return reading?.future ?? (bytes: readBytes, mimeType: readMime);
+  }
+
   @override
   Uri get pageUri => Uri.parse('https://plus.example.test/capture/');
   @override
   Future<Json> state() async {
     calls.add('state');
+    if (readingState != null) return readingState!.future;
     return {
-      'photos': saves.isEmpty
-          ? []
-          : [
-              {
-                'id': 'photo-1',
-                'label': saves.last.captureKey,
-                'sha256': superseded ? 'b' * 64 : saves.last.sha256,
-              },
-            ],
+      'photos':
+          photos ??
+          (saves.isEmpty
+              ? []
+              : [
+                  {
+                    'id': 'photo-1',
+                    'label': saves.last.captureKey,
+                    'sha256': superseded ? 'b' * 64 : saves.last.sha256,
+                  },
+                ]),
     };
   }
 
@@ -126,6 +143,142 @@ Json photoBody([String operation = '11111111-1111-4111-8111-111111111111']) => {
 };
 
 void main() {
+  testWidgets(
+    'review state deadline releases the image slot for another capture',
+    (tester) async {
+      final repo = CaptureRepositoryFake();
+      final hash = sha256.convert(repo.api.readBytes).toString();
+      final s = await session(repo, MemoryGuidedCapturePendingStore());
+      repo.api.readingState = Completer();
+      Json? response;
+      final request = s
+          .receive(
+            rpc('slow-state', 'readSavedPhoto', {
+              'photo_id': 'photo-1',
+              'photo_sha256': hash,
+            }),
+          )
+          .then((value) {
+            response = value;
+          });
+      await tester.pump(const Duration(seconds: 5));
+      expect(response?['error']['status'], 408);
+      final next = await s.receive(
+        rpc('check-after-timeout', 'checkFrame', {
+          'capture_key': 'vin',
+          'body_style': 'suv',
+          'photo': {'base64': 'AQID', 'mime_type': 'image/png'},
+        }),
+      );
+      expect(next?['result']['ready'], isTrue);
+      repo.api.readingState!.complete({'photos': []});
+      await request;
+    },
+  );
+  test('saved photo review returns only verified active image bytes', () async {
+    final repo = CaptureRepositoryFake();
+    final hash = sha256.convert(repo.api.readBytes).toString();
+    repo.api.photos = [
+      {'id': 'photo-1', 'label': 'vin', 'sha256': hash},
+    ];
+    final s = await session(repo, MemoryGuidedCapturePendingStore());
+    final response = await s.receive(
+      rpc('review', 'readSavedPhoto', {
+        'photo_id': 'photo-1',
+        'photo_sha256': hash,
+      }),
+    );
+    expect(response?['result'], {
+      'id': 'photo-1',
+      'sha256': hash,
+      'mime_type': 'image/png',
+      'base64': base64Encode(repo.api.readBytes),
+    });
+  });
+  test(
+    'review rejects caller identity, stale hash and unknown photo before reading',
+    () async {
+      final repo = CaptureRepositoryFake();
+      final hash = sha256.convert(repo.api.readBytes).toString();
+      repo.api.photos = [
+        {'id': 'photo-1', 'label': 'vin', 'sha256': hash},
+      ];
+      final s = await session(repo, MemoryGuidedCapturePendingStore());
+      for (final params in [
+        {'photo_id': 'photo-1', 'photo_sha256': hash, 'estimate_id': 'other'},
+        {'photo_id': 'foreign', 'photo_sha256': hash},
+        {'photo_id': 'photo-1', 'photo_sha256': 'a' * 64},
+      ]) {
+        final response = await s.receive(
+          rpc('review-${params.hashCode}', 'readSavedPhoto', params),
+        );
+        expect(response?['error'], isNotNull);
+      }
+      expect(repo.api.calls.where((call) => call.startsWith('read:')), isEmpty);
+    },
+  );
+  test('review withholds mismatched bytes and unsafe image formats', () async {
+    final repo = CaptureRepositoryFake();
+    final hash = sha256.convert(repo.api.readBytes).toString();
+    repo.api.photos = [
+      {'id': 'photo-1', 'label': 'vin', 'sha256': hash},
+    ];
+    final s = await session(repo, MemoryGuidedCapturePendingStore());
+    repo.api.readBytes = Uint8List.fromList([1, 2, 3]);
+    final changed = await s.receive(
+      rpc('changed', 'readSavedPhoto', {
+        'photo_id': 'photo-1',
+        'photo_sha256': hash,
+      }),
+    );
+    expect(changed?['error'], isNotNull);
+    repo.api.photos![0]['sha256'] = sha256
+        .convert(repo.api.readBytes)
+        .toString();
+    final unsafe = await s.receive(
+      rpc('unsafe', 'readSavedPhoto', {
+        'photo_id': 'photo-1',
+        'photo_sha256': repo.api.photos![0]['sha256'],
+      }),
+    );
+    expect(unsafe?['error'], isNotNull);
+  });
+  test(
+    'review drops late bytes when paused and when photo is replaced during read',
+    () async {
+      for (final pause in [true, false]) {
+        final repo = CaptureRepositoryFake();
+        final hash = sha256.convert(repo.api.readBytes).toString();
+        repo.api.photos = [
+          {'id': 'photo-1', 'label': 'vin', 'sha256': hash},
+        ];
+        repo.api.reading = Completer();
+        final s = await session(repo, MemoryGuidedCapturePendingStore());
+        final request = s.receive(
+          rpc('late', 'readSavedPhoto', {
+            'photo_id': 'photo-1',
+            'photo_sha256': hash,
+          }),
+        );
+        await Future<void>.delayed(Duration.zero);
+        if (pause) {
+          s.pause();
+        } else {
+          repo.api.photos![0]['sha256'] = 'b' * 64;
+        }
+        repo.api.reading!.complete((
+          bytes: repo.api.readBytes,
+          mimeType: repo.api.readMime,
+        ));
+        final response = await request;
+        if (pause) {
+          expect(response, isNull);
+        } else {
+          expect(response?['error']['status'], 409);
+        }
+      }
+    },
+  );
   test(
     'external gallery handoff waits for foreground and fails closed after disposal',
     () async {

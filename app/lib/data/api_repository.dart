@@ -800,6 +800,83 @@ class _ApiGuidedCapture extends GuidedCaptureApi {
   @override
   Future<Json> state() => request('GET', '');
   @override
+  Future<({Uint8List bytes, String mimeType})> readPhoto(String photoId) async {
+    final abort = Completer<void>();
+    StreamIterator<List<int>>? chunks;
+    Future<({Uint8List bytes, String mimeType})> load() async {
+      check();
+      final headers = await repository._headers();
+      check();
+      if (abort.isCompleted) throw TimeoutException('Photo read expired');
+      final outgoing =
+          http.AbortableRequest(
+              'GET',
+              repository.baseUri.resolve(
+                '/v1/estimates/${Uri.encodeComponent(estimateId)}/photos/${Uri.encodeComponent(photoId)}',
+              ),
+              abortTrigger: abort.future,
+            )
+            ..headers.addAll(headers)
+            ..followRedirects = false;
+      final response = await repository._client.send(outgoing);
+      final mime = response.headers['content-type']
+          ?.split(';')
+          .first
+          .trim()
+          .toLowerCase();
+      try {
+        // A transport that ignores abort may deliver headers after expiry.
+        if (abort.isCompleted) throw TimeoutException('Photo read expired');
+        check();
+        if (response.statusCode != 200 ||
+            !const {'image/png', 'image/jpeg', 'image/webp'}.contains(mime)) {
+          throw PlusApiException(
+            'This saved photo could not be loaded. Try again.',
+            response.statusCode == 200 ? 422 : response.statusCode,
+          );
+        }
+      } catch (_) {
+        // StreamIterator is lazy: cancelling it before moveNext would leave an
+        // unconsumed body open. Bind and cancel the actual response here.
+        await response.stream.listen(null).cancel();
+        rethrow;
+      }
+      final reader = StreamIterator(response.stream);
+      chunks = reader;
+      final buffer = BytesBuilder(copy: false);
+      while (await reader.moveNext().timeout(const Duration(seconds: 8))) {
+        check();
+        final chunk = reader.current;
+        if (buffer.length + chunk.length > maxSavedCaptureBytes) {
+          throw const PlusApiException(
+            'This saved photo is too large to display.',
+            422,
+          );
+        }
+        buffer.add(chunk);
+      }
+      check();
+      return (bytes: buffer.takeBytes(), mimeType: mime!);
+    }
+
+    try {
+      // Includes token lookup, headers and the full body, even when chunks keep
+      // arriving within the idle timeout. This stays below the page RPC limit.
+      return await load().timeout(const Duration(seconds: 15));
+    } on TimeoutException {
+      throw const PlusApiException('Photo loading timed out. Try again.', 408);
+    } on http.ClientException {
+      throw const PlusApiException(
+        'Could not load the photo. Check your connection.',
+        503,
+      );
+    } finally {
+      if (!abort.isCompleted) abort.complete();
+      await chunks?.cancel();
+    }
+  }
+
+  @override
   Future<Json> checkFrame({
     required Uint8List bytes,
     required String mimeType,

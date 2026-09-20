@@ -1,6 +1,6 @@
 /** The first-party/native host owns authentication and estimate identity. */
 export const CHANNEL = "estimoto-plus-capture";
-export type Method = "captureState" | "checkFrame" | "saveCapture" | "recognizeVin" | "confirmVin" | "askCaptureHelp" | "close";
+export type Method = "captureState" | "readSavedPhoto" | "checkFrame" | "saveCapture" | "recognizeVin" | "confirmVin" | "askCaptureHelp" | "close";
 type Pending = { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: number };
 type CaptureWindow = Window & { CaptureHost?: { postMessage: (message: string) => void }; EstimotoPlusCapture?: { receive: (message: unknown) => void } };
 

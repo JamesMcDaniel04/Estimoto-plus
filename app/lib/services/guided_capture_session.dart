@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:async';
 import 'dart:typed_data';
+import 'package:crypto/crypto.dart';
 import '../data/repository.dart';
 import '../domain/models.dart';
 import '../state/plus_controller.dart';
@@ -290,6 +291,80 @@ class GuidedCaptureSession {
     }
   }
 
+  Future<Json> readSavedPhoto(Json params, int run) async {
+    keys(params, {'photo_id', 'photo_sha256'});
+    final id = string(params, 'photo_id', 36);
+    final hash = string(params, 'photo_sha256', 64);
+    if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(hash)) {
+      throw const PlusApiException('Choose a saved photo to review.', 422);
+    }
+    var reviewing = true;
+    final reviewApi = controller.repository.openGuidedCapture(
+      estimateId,
+      isCurrent: () => reviewing && valid(run),
+    );
+    Future<void> checkPhoto() async {
+      final latest = await reviewApi.state().timeout(
+        const Duration(seconds: 4),
+      );
+      check(run);
+      if (!rowsOf(
+        latest,
+        'photos',
+      ).any((photo) => photo['id'] == id && photo['sha256'] == hash)) {
+        throw const PlusApiException(
+          'This photo changed. Refresh the guide to review the saved photo.',
+          409,
+        );
+      }
+    }
+
+    try {
+      // At most 4 + 15 + 4 seconds; the page waits 25 seconds. The private reader
+      // cancels its HTTP body at its deadline, and this scope rejects late state.
+      await checkPhoto();
+      final photo = await reviewApi
+          .readPhoto(id)
+          .timeout(const Duration(seconds: 15));
+      check(run);
+      final bytes = photo.bytes;
+      bool starts(List<int> signature, [int offset = 0]) =>
+          bytes.length >= offset + signature.length &&
+          signature.indexed.every(
+            (entry) => bytes[offset + entry.$1] == entry.$2,
+          );
+      final validImage = switch (photo.mimeType) {
+        'image/png' => starts([137, 80, 78, 71, 13, 10, 26, 10]),
+        'image/jpeg' => starts([255, 216, 255]),
+        'image/webp' => starts([82, 73, 70, 70]) && starts([87, 69, 66, 80], 8),
+        _ => false,
+      };
+      if (bytes.isEmpty || bytes.length > maxSavedCaptureBytes || !validImage) {
+        throw const PlusApiException(
+          'This saved image cannot be displayed.',
+          422,
+        );
+      }
+      if (sha256.convert(bytes).toString() != hash) {
+        throw const PlusApiException(
+          'This photo changed. Refresh the guide to review the saved photo.',
+          409,
+        );
+      }
+      await checkPhoto();
+      return {
+        'id': id,
+        'sha256': hash,
+        'mime_type': photo.mimeType,
+        'base64': base64Encode(bytes),
+      };
+    } on TimeoutException {
+      throw const PlusApiException('Photo loading timed out. Try again.', 408);
+    } finally {
+      reviewing = false;
+    }
+  }
+
   /// Called only after the platform has validated the exact page/window origin.
   Future<Json?> receive(String raw) async {
     if (!valid(epoch) || !boundedCaptureMessage(raw)) return null;
@@ -334,7 +409,9 @@ class GuidedCaptureSession {
         throw const PlusApiException('Invalid capture request.', 422);
       }
       final params = Map<String, dynamic>.from(request['params'] as Map);
-      if (method == 'checkFrame' || method == 'saveCapture') {
+      if (method == 'checkFrame' ||
+          method == 'saveCapture' ||
+          method == 'readSavedPhoto') {
         if (_images != 0) {
           throw const PlusApiException(
             'A photo is being checked or saved. Retry shortly.',
@@ -349,6 +426,8 @@ class GuidedCaptureSession {
         case 'captureState':
           keys(params, {});
           result = await api(run).state();
+        case 'readSavedPhoto':
+          result = await readSavedPhoto(params, run);
         case 'checkFrame':
           keys(params, {'capture_key', 'body_style', 'photo'});
           final value = frame(params);

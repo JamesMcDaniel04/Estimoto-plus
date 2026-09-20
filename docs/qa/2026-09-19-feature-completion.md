@@ -57,5 +57,5 @@ No production deployment, native distribution or physical-device verification
 was performed. No shop was contacted. Calendar/Gmail configuration, push reminder
 delivery, CARFAX and store publication remain separate integration work. Reminder
 completion does not create a service-history entry or automatically repeat a
-maintenance interval. The capture page's existing “Review required photos” button
-still opens its camera; a gallery-first review flow remains a follow-up improvement.
+maintenance interval. The subsequent [parity pass](2026-09-19-parity-improvements.md)
+adds a gallery-first saved-photo review flow to guided capture.

@@ -88,6 +88,14 @@ class DemoPlusRepository extends PlusRepository {
   );
 
   final _dedicated = <String, Json>{};
+  // Fictional geography shared by discovery and request admission. Shop visits
+  // can be nearby; mobile service still requires the provider's exact ZIP.
+  bool _withinDemoArea(ProviderProfile provider, String postal) =>
+      provider.postalCodes.contains(postal) ||
+      provider.postalCodes.any(
+        (zip) => zip.length >= 2 && postal.startsWith(zip.substring(0, 2)),
+      );
+
   @override
   Future<Json> discoverProviders(Json query) async {
     final snapshot = await bootstrap();
@@ -102,10 +110,7 @@ class DemoPlusRepository extends PlusRepository {
         continue;
       }
       // Fictional demo geography only; no public directory or provider is contacted.
-      if (!p.postalCodes.contains(postal) &&
-          !p.postalCodes.any(
-            (z) => z.length >= 2 && postal.startsWith(z.substring(0, 2)),
-          )) {
+      if (!_withinDemoArea(p, postal)) {
         continue;
       }
       final modes = [
@@ -640,12 +645,13 @@ class DemoPlusRepository extends PlusRepository {
   @override
   Future<void> deleteVehicle(String id) async {
     _find('vehicles', id);
-    if ([
-      'estimates',
-      'repairs',
-      'requests',
-      'reminders',
-    ].any((key) => _rows(key).any((row) => row['vehicle_id'] == id))) {
+    if (_history.any((row) => row['vehicle_id'] == id) ||
+        [
+          'estimates',
+          'repairs',
+          'requests',
+          'reminders',
+        ].any((key) => _rows(key).any((row) => row['vehicle_id'] == id))) {
       throw const PlusApiException(
         'This vehicle has saved history. Keep it in your garage to preserve those records.',
         409,
@@ -721,19 +727,27 @@ class DemoPlusRepository extends PlusRepository {
     final provider = ProviderProfile.fromJson(
       _find('providers', body['provider_id'] as String),
     );
-    if (!RegExp(
-      r'^\d{5}$',
-    ).hasMatch((_state['profile'] as Json)['postal_code'] as String)) {
+    final postal = (_state['profile'] as Json)['postal_code'] as String;
+    if (!RegExp(r'^\d{5}$').hasMatch(postal)) {
       throw const PlusApiException(
         'Add your service ZIP code in your profile before sending.',
       );
     }
-    if (!provider.matches(
-      specialty: body['specialty'] as String,
-      postalCode: (_state['profile'] as Json)['postal_code'] as String,
-    )) {
-      throw const PlusApiException(
+    final mode = body['service_mode'];
+    final admitted = switch (mode) {
+      null => provider.postalCodes.contains(postal),
+      'mobile' =>
+        provider.mobileService && provider.postalCodes.contains(postal),
+      'shop_visit' =>
+        provider.kind == 'shop' && _withinDemoArea(provider, postal),
+      _ => false,
+    };
+    if (!admitted ||
+        provider.json['public_visible'] == false ||
+        !provider.matches(specialty: body['specialty'] as String)) {
+      throw PlusApiException(
         'This provider is not available for that request.',
+        mode == null ? 409 : 422,
       );
     }
     if (body['share_contact'] != true) {

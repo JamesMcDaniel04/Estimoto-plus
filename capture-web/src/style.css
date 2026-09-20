@@ -23,6 +23,14 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .capture-list li { display: flex; justify-content: space-between; gap: .8rem; padding: .65rem .8rem; border-bottom: 1px solid #e2e8f0; }
 .capture-list li:last-child { border: 0; }
 .capture-list strong { white-space: nowrap; color: #0d766e; }
+.capture-list li { align-items: center; }
+.capture-list button, .capture-review-all { border: 0; border-radius: .5rem; background: #e7f1f8; color: #123f6a; padding: .6rem .8rem; font-weight: 650; }
+.capture-review-all { margin-top: .75rem; }
+.capture-review { margin-bottom: 1rem; }
+.capture-review-header { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+.capture-review-header button { flex-shrink: 0; font-size: .85rem; padding: .6rem .8rem; margin: 0; }
+.capture-saved-image { display: block; width: 100%; height: min(55dvh, 32rem); object-fit: contain; border-radius: .6rem; background: #edf2f6; }
+.capture-review-note { color: #526372; font-size: .85rem; }
 .capture-panel { margin-top: 1rem; padding: 1rem; border: 1px solid #dbe5ea; border-radius: 1rem; }
 .capture-panel label { display: block; font-weight: 650; margin: .6rem 0 .25rem; }
 .capture-panel input, .capture-panel select { display: block; width: 100%; max-width: 100%; min-height: 2.8rem; border: 1px solid #94a3b8; border-radius: .6rem; background: white; padding: .4rem .65rem; margin: .5rem 0; }

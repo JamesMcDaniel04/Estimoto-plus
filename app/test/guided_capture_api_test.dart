@@ -10,6 +10,201 @@ import 'package:estimoto_plus/services/guided_capture_pending.dart';
 
 void main() {
   test(
+    'saved image header rejection cancels the unconsumed response body',
+    () async {
+      for (final status in [401, 302, 200, -1]) {
+        var cancelled = false, current = true;
+        final stream = StreamController<List<int>>(
+          onCancel: () async {
+            cancelled = true;
+          },
+        );
+        final repository = ApiPlusRepository(
+          baseUrl: 'https://plus.example.test',
+          token: () async => 'owner',
+          client: MockClient.streaming((request, body) async {
+            if (status == -1) current = false;
+            return http.StreamedResponse(
+              stream.stream,
+              status == -1 ? 200 : status,
+              headers: {
+                'content-type': status == 200 ? 'image/svg+xml' : 'image/png',
+              },
+            );
+          }),
+        );
+        final api = repository.openGuidedCapture(
+          'estimate-1',
+          isCurrent: () => current,
+        );
+        await expectLater(
+          api.readPhoto('photo-1'),
+          throwsA(isA<PlusApiException>()),
+        );
+        expect(
+          cancelled,
+          isTrue,
+          reason: 'Response $status must cancel its body',
+        );
+        unawaited(stream.close());
+      }
+    },
+  );
+  testWidgets(
+    'saved image total deadline cancels a continuously progressing body',
+    (tester) async {
+      var cancelled = false;
+      Timer? ticks;
+      final stream = StreamController<List<int>>(
+        onCancel: () async {
+          cancelled = true;
+          ticks?.cancel();
+        },
+      );
+      final repository = ApiPlusRepository(
+        baseUrl: 'https://plus.example.test',
+        token: () async => 'owner',
+        client: MockClient.streaming((request, body) async {
+          ticks = Timer.periodic(
+            const Duration(seconds: 2),
+            (_) => stream.add([1]),
+          );
+          return http.StreamedResponse(
+            stream.stream,
+            200,
+            headers: {'content-type': 'image/png'},
+          );
+        }),
+      );
+      final api = repository.openGuidedCapture(
+        'estimate-1',
+        isCurrent: () => true,
+      );
+      Object? failure;
+      var complete = false;
+      final pending = api
+          .readPhoto('photo-1')
+          .then<void>(
+            (_) {
+              complete = true;
+            },
+            onError: (Object error) {
+              failure = error;
+              complete = true;
+            },
+          );
+      await tester.pump();
+      for (var tick = 0; tick < 8; tick++) {
+        await tester.pump(const Duration(seconds: 2));
+      }
+      expect(complete, isTrue);
+      expect(
+        failure,
+        isA<PlusApiException>().having(
+          (error) => error.statusCode,
+          'status',
+          408,
+        ),
+      );
+      expect(cancelled, isTrue);
+      ticks?.cancel();
+      unawaited(stream.close());
+      await pending;
+    },
+  );
+  test(
+    'saved image transport binds private path and never exposes auth to the page',
+    () async {
+      final requests = <http.Request>[];
+      final image = base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=',
+      );
+      final repository = ApiPlusRepository(
+        baseUrl: 'https://plus.example.test',
+        token: () async => 'private-token',
+        client: MockClient((r) async {
+          requests.add(r);
+          return http.Response.bytes(
+            image,
+            200,
+            headers: {'content-type': 'image/png'},
+          );
+        }),
+      );
+      final dynamic api = repository.openGuidedCapture(
+        'estimate-1',
+        isCurrent: () => true,
+      );
+      final dynamic result = await api.readPhoto('photo-1');
+      expect(result.bytes, image);
+      expect(result.mimeType, 'image/png');
+      expect(
+        requests.single.url.toString(),
+        'https://plus.example.test/v1/estimates/estimate-1/photos/photo-1',
+      );
+      expect(requests.single.headers['Authorization'], 'Bearer private-token');
+      expect(requests.single.followRedirects, isFalse);
+    },
+  );
+  test(
+    'saved image read checks account after resolving auth before sending',
+    () async {
+      var current = true, sends = 0;
+      final token = Completer<String?>();
+      final repository = ApiPlusRepository(
+        baseUrl: 'https://plus.example.test',
+        token: () => token.future,
+        client: MockClient((r) async {
+          sends++;
+          return http.Response('', 200);
+        }),
+      );
+      final dynamic api = repository.openGuidedCapture(
+        'estimate-1',
+        isCurrent: () => current,
+      );
+      final Future<dynamic> pending = api.readPhoto('photo-1');
+      current = false;
+      token.complete('different-owner');
+      await expectLater(pending, throwsA(isA<PlusApiException>()));
+      expect(sends, 0);
+    },
+  );
+  test(
+    'saved image read rejects unsafe content, redirects and oversized responses',
+    () async {
+      var response = http.Response(
+        '<svg/>',
+        200,
+        headers: {'content-type': 'image/svg+xml'},
+      );
+      final repository = ApiPlusRepository(
+        baseUrl: 'https://plus.example.test',
+        token: () async => 'owner',
+        client: MockClient((r) async => response),
+      );
+      final dynamic api = repository.openGuidedCapture(
+        'estimate-1',
+        isCurrent: () => true,
+      );
+      for (final next in [
+        response,
+        http.Response('', 302, headers: {'location': 'https://evil.test'}),
+        http.Response.bytes(
+          Uint8List(10 * 1024 * 1024 + 1),
+          200,
+          headers: {'content-type': 'image/png'},
+        ),
+      ]) {
+        response = next;
+        await expectLater(
+          api.readPhoto('photo-1'),
+          throwsA(isA<PlusApiException>()),
+        );
+      }
+    },
+  );
+  test(
     'capture transport binds path and auth outside the page and preserves exact multipart operation',
     () async {
       final requests = <http.Request>[];

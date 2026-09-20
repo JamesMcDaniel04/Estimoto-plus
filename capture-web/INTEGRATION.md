@@ -9,6 +9,7 @@ Outbound RPC is `{channel:"estimoto-plus-capture",id,method,params}` and the hos
 | Method | Params | Server action |
 | --- | --- | --- |
 | `captureState` | `{}` | GET owner-bound draft/photo state |
+| `readSavedPhoto` | `{photo_id,photo_sha256}` | GET active private photo bytes through the owner-bound host; returns `{id,sha256,mime_type,base64}` |
 | `checkFrame` | `{capture_key,body_style,photo:{base64,mime_type}}` | Bounded transient framing guidance |
 | `saveCapture` | Same plus `operation_id` UUID | Idempotent private photo save; same File retains operation ID on timeout |
 | `recognizeVin` | `{photo_id}` | OCR of the current saved private VIN photo |
@@ -17,6 +18,10 @@ Outbound RPC is `{channel:"estimoto-plus-capture",id,method,params}` and the hos
 | `close` | `{}` | Refresh the estimate and return to its review screen |
 
 Files are capped at 8 MB before base64 transfer, and the host and API must enforce the same bound. `saveCapture` HTTP 422 is a definitive validation rejection, so the page offers a new frame. Timeout, 408, ordinary 409, 429 and 5xx retain the exact file and UUID for retry. The host can attach `code:"capture_superseded"` to a 409 only after comparing a successful receipt with the active photo ID and SHA. That proven conflict releases the old file/UUID and refreshes the guide; an unknown code or other status never receives this exception. The host must preserve the HTTP status in the structured error envelope and never echo private headers or body in errors.
+
+Saved-photo review loads one selected image at a time. The host verifies the photo ID and SHA against active capture state both before and after the private read, checks the bytes against that SHA, and accepts only JPEG, PNG or WebP whose signature matches its MIME type. Reads retain the older photo endpoint's 10 MB limit and reject redirects. Authentication stays in the host; no private photo URL or access token is given to the page. Review uses an ephemeral object URL that is revoked on photo changes, close, retake, pause and unmount; late results are ignored. Older native hosts that do not implement `readSavedPhoto` show a retry/close message and preserve the saved photo. Retaking a selected view uses the existing idempotent capture save; opening or abandoning a retake does not delete the old photo.
+
+The two state checks have four-second deadlines and the complete private image read has a fifteen-second deadline, including token lookup, response headers and all body chunks. Expiry aborts the HTTP request and cancels its body subscription, so a continuously progressing response cannot hold the image-operation slot after the page times out. Older saved rows with no photo hash explicitly return users to the estimate's existing private viewer; they are never shown an impossible hash-verification retry.
 
 The required documentation sequence is odometer, **driver-door-jamb VIN**, engine bay, interior, tire tread, then front/driver/rear/passenger exterior views. All nine are documentary evidence; the VIN step never prices damage. The original public link uses the same requirement, while a persisted version-1 Plus machine receipt may finish its frozen legacy eight-photo intake. New Plus submissions use capture version 2. PDR uses a matching `hail_close_<panel>` and `hail_raking_<panel>` pair; the raking view supports dent assessment. A legacy `panel_<panel>` remains a valid assessable alternative, without adding a duplicate panel to a new pair. Collision close-ups use its 18-panel catalog.
 

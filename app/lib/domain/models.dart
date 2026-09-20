@@ -252,7 +252,8 @@ class ServiceRequest {
   String get status => textOf(json, 'status', 'requested');
   String get deliveryStatus => textOf(json, 'delivery_status', 'queued');
   List<Json> get events => rowsOf(json, 'events');
-  bool get canCancel => status == 'requested' || status == 'accepted';
+  bool get canCancel =>
+      status == 'requested' || status == 'accepted' || status == 'scheduled';
   String get statusLabel => switch (status) {
     'requested' => 'Waiting for a response',
     'accepted' => 'Request accepted',
