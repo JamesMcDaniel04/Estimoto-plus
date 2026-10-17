@@ -136,8 +136,13 @@ class ApiPlusRepository extends PlusRepository {
       if (response.statusCode == 409) {
         try {
           final error = jsonDecode(response.body);
-          if (error is Map && error['code'] == 'request_not_created') {
-            code = 'request_not_created';
+          if (error is Map &&
+              const {
+                'request_not_created',
+                'settings_conflict',
+                'profile_conflict',
+              }.contains(error['code'])) {
+            code = error['code'] as String;
           }
         } on FormatException {
           // An unrecognized conflict remains unresolved; never guess it was rejected.
@@ -271,6 +276,53 @@ class ApiPlusRepository extends PlusRepository {
   @override
   Future<Json> saveProfile(Json body) =>
       _send('PUT', '/v1/profile', body: body);
+  @override
+  Future<Json> getProfileSettings({bool Function()? isCurrent}) =>
+      _send('GET', '/v1/profile', isCurrent: isCurrent);
+  @override
+  Future<Json> saveProfileSettings(
+    Json body, {
+    required bool Function() isCurrent,
+  }) => _send('PUT', '/v1/profile', body: Map.of(body), isCurrent: isCurrent);
+  @override
+  Future<Json> clearProfileSettings(
+    int expectedRevision, {
+    required bool Function() isCurrent,
+  }) => _send(
+    'DELETE',
+    '/v1/profile?expected_revision=$expectedRevision',
+    isCurrent: isCurrent,
+  );
+  @override
+  Future<Json> getAppSettings({bool Function()? isCurrent}) =>
+      _send('GET', '/v1/settings', isCurrent: isCurrent);
+  @override
+  Future<Json> saveAppSettings(
+    Json body, {
+    required bool Function() isCurrent,
+  }) => _send('PUT', '/v1/settings', body: Map.of(body), isCurrent: isCurrent);
+  @override
+  Future<Json> resetAppSettings(
+    int expectedRevision, {
+    required bool Function() isCurrent,
+  }) => _send(
+    'DELETE',
+    '/v1/settings?expected_revision=$expectedRevision',
+    isCurrent: isCurrent,
+  );
+  @override
+  Future<Json> getKnowledgePreferences({bool Function()? isCurrent}) =>
+      _send('GET', '/v1/knowledge/preferences', isCurrent: isCurrent);
+  @override
+  Future<Json> saveKnowledgePreferencesScoped(
+    Json body, {
+    required bool Function() isCurrent,
+  }) => _send(
+    'PUT',
+    '/v1/knowledge/preferences',
+    body: Map.of(body),
+    isCurrent: isCurrent,
+  );
   @override
   Future<Json> saveVehicle(Json body, {String? id}) => _send(
     id == null ? 'POST' : 'PUT',

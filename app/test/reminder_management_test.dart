@@ -193,7 +193,7 @@ void main() {
       controller.invalidateSession();
       repository.completion.complete();
       await tester.pumpAndSettle();
-      expect(controller.snapshot!.reminders.single.completed, isFalse);
+      expect(controller.snapshot, isNull);
       expect(find.text('Reminder completed'), findsNothing);
     },
   );

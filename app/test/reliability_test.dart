@@ -5,6 +5,7 @@ import 'package:estimoto_plus/widgets/shop_profile.dart';
 import 'package:estimoto_plus/app.dart';
 import 'package:estimoto_plus/data/customer_auth.dart';
 import 'package:estimoto_plus/data/demo_repository.dart';
+import 'package:estimoto_plus/data/demo_seed.dart';
 import 'package:estimoto_plus/data/pending_request_store.dart';
 import 'package:estimoto_plus/data/repository.dart';
 import 'package:estimoto_plus/domain/models.dart';
@@ -75,8 +76,11 @@ class IdentityRepository extends DemoPlusRepository {
   bool get isDemo => false;
   @override
   Future<PlusSnapshot> bootstrap() async {
-    await saveProfile({'id': identity, 'name': identity});
-    return super.bootstrap();
+    final seed = demoSeed();
+    return PlusSnapshot.fromJson({
+      ...seed,
+      'profile': {...seed['profile'] as Json, 'id': identity, 'name': identity},
+    });
   }
 
   @override

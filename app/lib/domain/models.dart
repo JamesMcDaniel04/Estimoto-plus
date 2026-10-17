@@ -35,6 +35,34 @@ class CustomerProfile {
   String get email => textOf(json, 'email');
   String get phone => textOf(json, 'phone');
   String get postalCode => textOf(json, 'postal_code');
+  int get revision => intOf(json, 'revision');
+}
+
+class AppSettings {
+  AppSettings.fromJson(Json value) : json = Map.unmodifiable(value);
+  final Json json;
+  int get revision => intOf(json, 'revision');
+  bool get customized => json['customized'] == true;
+  String? get defaultVehicleId => json['default_vehicle_id'] is String
+      ? json['default_vehicle_id'] as String
+      : null;
+  String get defaultEstimateDiscipline =>
+      json['default_estimate_discipline'] == 'collision' ? 'collision' : 'pdr';
+  String get homeTab =>
+      const {
+        'garage',
+        'estimates',
+        'repairs',
+        'find_help',
+      }.contains(json['home_tab'])
+      ? json['home_tab'] as String
+      : 'garage';
+  int get homeTabIndex => const {
+    'garage': 0,
+    'estimates': 1,
+    'repairs': 3,
+    'find_help': 4,
+  }[homeTab]!;
 }
 
 class Vehicle {
@@ -332,6 +360,9 @@ class PlusSnapshot {
     : profile = CustomerProfile.fromJson(
         Map<String, dynamic>.from(json['profile'] as Map? ?? {}),
       ),
+      settings = AppSettings.fromJson(
+        Map<String, dynamic>.from(json['settings'] as Map? ?? {}),
+      ),
       vehicles = rowsOf(json, 'vehicles').map(Vehicle.fromJson).toList(),
       providers = rowsOf(
         json,
@@ -350,7 +381,23 @@ class PlusSnapshot {
       capabilities = Capabilities.fromJson(
         Map<String, dynamic>.from(json['capabilities'] as Map? ?? {}),
       );
+  PlusSnapshot._copy(
+    PlusSnapshot previous, {
+    CustomerProfile? profile,
+    AppSettings? settings,
+  }) : profile = profile ?? previous.profile,
+       settings = settings ?? previous.settings,
+       vehicles = previous.vehicles,
+       providers = previous.providers,
+       estimates = previous.estimates,
+       repairs = previous.repairs,
+       requests = previous.requests,
+       reminders = previous.reminders,
+       capabilities = previous.capabilities;
+  PlusSnapshot copyWith({CustomerProfile? profile, AppSettings? settings}) =>
+      PlusSnapshot._copy(this, profile: profile, settings: settings);
   final CustomerProfile profile;
+  final AppSettings settings;
   final List<Vehicle> vehicles;
   final List<ProviderProfile> providers;
   final List<CustomerEstimate> estimates;

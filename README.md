@@ -30,6 +30,13 @@ Open `http://127.0.0.1:4318`. Production customer sessions use the dedicated aut
 
 ## What is in this milestone
 
+The October 17 settings pass adds editable and clearable contact details, saved
+default vehicle/estimate/start-page preferences, explicit reset and discard
+controls, and the existing insights-sharing privacy choice. Concurrent edits
+produce a recoverable conflict, and expired sessions immediately clear private
+screen data. See the [settings validation notes](docs/qa/2026-10-17-settings-crud.md)
+for verification and backend migration requirements.
+
 The local September 19 improvements add reminder urgency and completed-reminder
 management, searchable service history, reliable receipt attachment while editing,
 and contact options for the shop reviewing an estimate. The next parity pass adds
@@ -41,6 +48,7 @@ for scope and remaining release checks.
 
 | Area | Implemented |
 | --- | --- |
+| Settings | Profile read/update/clear with identity preserved; account-saved vehicle, estimate type and start page defaults; save/discard/reload/reset controls; shared service-history privacy consent; revision conflicts and session-safe callbacks |
 | Garage | Saved contact details, multiple vehicles, mileage and optional insurance; date/mileage reminders with overdue/due/upcoming status, editable dates and a completed list you can reopen; representative CarsXE photos or private camera/gallery uploads |
 | Estimates | PDR/Collision tabs with vehicle, status and search filters; guided required-photo capture with private saved-photo review and retakes; editable and deletable unshared drafts and photos, durable handoff to a selected Estimoto shop, reviewed estimate status and selected-shop contact options |
 | Repairs | Searchable timelines and requests with vehicle/activity filters and latest-update ordering; request delivery/response status, provider contact options and cancellation through scheduled status |

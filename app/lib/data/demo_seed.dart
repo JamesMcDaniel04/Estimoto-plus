@@ -10,6 +10,14 @@ Json demoSeed() {
       'phone': '',
       'postal_code': '80202',
       'contact_preference': 'email',
+      'revision': 0,
+    },
+    'settings': {
+      'revision': 0,
+      'customized': false,
+      'default_vehicle_id': null,
+      'default_estimate_discipline': 'pdr',
+      'home_tab': 'garage',
     },
     'vehicles': [
       {

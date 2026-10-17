@@ -110,7 +110,18 @@ def test_request_invalid_saved_details_do_not_create_immutable_outbox(plus, kind
     vehicle_id, provider_id, _ = setup_draft(client)
     route = "/v1/profile" if kind == "profile" else f"/v1/vehicles/{vehicle_id}"
     data = {"postal_code":"80202", **changes} if kind == "profile" else changes
-    assert client.put(route, headers=auth(), json=data).status_code == 200
+    if kind == "profile" and "phone" in changes:
+        assert client.put(route, headers=auth(), json=data).status_code == 422
+        # Retain the downstream guard for legacy malformed profiles even though
+        # new profile writes reject them before they reach the database.
+        from estimoto_plus.models import Customer
+        with app.state.session_factory() as db:
+            customer = db.get(Customer, "alice")
+            for key, value in changes.items():
+                setattr(customer, key, value)
+            db.commit()
+    else:
+        assert client.put(route, headers=auth(), json=data).status_code == 200
     body = {"vehicle_id":vehicle_id, "provider_id":provider_id, "specialty":"pdr",
             "description":"Please help", "share_contact":True}
     headers = {**auth(), "Idempotency-Key":"invalid-saved-details"}

@@ -356,6 +356,7 @@ class DemoPlusRepository extends PlusRepository {
   final _discardedOutreach = <String>{};
   final _workspaceKeys = <String, (String, Json)>{};
   bool _shareInsights = false;
+  static const _knowledgePolicyVersion = '2026-09-13';
   Json _copy(Json value) => jsonDecode(jsonEncode(value)) as Json;
   Json _workspaceFind(List<Json> rows, String id) =>
       rows.where((r) => r['id'] == id).firstOrNull ??
@@ -571,6 +572,7 @@ class DemoPlusRepository extends PlusRepository {
   Future<Json> getKnowledge() async => {
     'records': _history.reversed.map(_copy).toList(),
     'preferences': {'share_aggregate_insights': _shareInsights},
+    'policy_version': _knowledgePolicyVersion,
   };
   @override
   Future<Json> addKnowledgeRecord(Json body, String idempotencyKey) async =>
@@ -602,8 +604,36 @@ class DemoPlusRepository extends PlusRepository {
 
   @override
   Future<Json> saveKnowledgePreferences(Json body) async {
-    _shareInsights = body['share_aggregate_insights'] == true;
-    return {'share_aggregate_insights': _shareInsights};
+    _onlyKeys(body, {'share_aggregate_insights'});
+    if (body['share_aggregate_insights'] is! bool) {
+      throw const PlusApiException(
+        'Choose whether to share aggregate insights.',
+        422,
+      );
+    }
+    _shareInsights = body['share_aggregate_insights'] as bool;
+    return {
+      'share_aggregate_insights': _shareInsights,
+      'policy_version': _knowledgePolicyVersion,
+    };
+  }
+
+  @override
+  Future<Json> getKnowledgePreferences({bool Function()? isCurrent}) async {
+    _checkSettingsSession(isCurrent);
+    return {
+      'share_aggregate_insights': _shareInsights,
+      'policy_version': _knowledgePolicyVersion,
+    };
+  }
+
+  @override
+  Future<Json> saveKnowledgePreferencesScoped(
+    Json body, {
+    required bool Function() isCurrent,
+  }) async {
+    _checkSettingsSession(isCurrent);
+    return saveKnowledgePreferences(body);
   }
 
   final Map<String, (String, String)> _requestsByKey = {};
@@ -622,10 +652,222 @@ class DemoPlusRepository extends PlusRepository {
   @override
   Future<PlusSnapshot> bootstrap() async =>
       PlusSnapshot.fromJson(jsonDecode(jsonEncode(_state)) as Json);
+
+  void _checkSettingsSession(bool Function()? isCurrent) {
+    if (isCurrent != null && !isCurrent()) {
+      throw const PlusApiException(
+        'Your account changed. Reopen Settings to continue.',
+        401,
+      );
+    }
+  }
+
+  void _onlyKeys(Json body, Set<String> allowed) {
+    if (body.keys.any((key) => !allowed.contains(key))) {
+      throw const PlusApiException(
+        'These settings contain an unsupported field.',
+        422,
+      );
+    }
+  }
+
+  int _expectedRevision(dynamic value) {
+    if (value is! int || value < 0) {
+      throw const PlusApiException('Refresh Settings before saving.', 422);
+    }
+    return value;
+  }
+
+  Json _defaultAppSettings([int revision = 0]) => {
+    'revision': revision,
+    'customized': false,
+    'default_vehicle_id': null,
+    'default_estimate_discipline': 'pdr',
+    'home_tab': 'garage',
+  };
+
+  Json get _appSettings => _state['settings'] as Json? ?? _defaultAppSettings();
+
+  void _checkRevision(int expected, int actual, String code) {
+    if (expected != actual) {
+      throw PlusApiException(
+        'These settings changed. Reload them before saving.',
+        409,
+        code,
+      );
+    }
+  }
+
+  @override
+  Future<Json> getAppSettings({bool Function()? isCurrent}) async {
+    _checkSettingsSession(isCurrent);
+    return _copy(_appSettings);
+  }
+
+  @override
+  Future<Json> saveAppSettings(
+    Json body, {
+    required bool Function() isCurrent,
+  }) async {
+    _checkSettingsSession(isCurrent);
+    _onlyKeys(body, {
+      'expected_revision',
+      'default_vehicle_id',
+      'default_estimate_discipline',
+      'home_tab',
+    });
+    final expected = _expectedRevision(body['expected_revision']);
+    if (!body.containsKey('default_vehicle_id') ||
+        (body['default_vehicle_id'] != null &&
+            (body['default_vehicle_id'] is! String ||
+                (body['default_vehicle_id'] as String).isEmpty ||
+                (body['default_vehicle_id'] as String).runes.length > 36)) ||
+        !{'pdr', 'collision'}.contains(body['default_estimate_discipline']) ||
+        !{
+          'garage',
+          'estimates',
+          'repairs',
+          'find_help',
+        }.contains(body['home_tab'])) {
+      throw const PlusApiException('Choose valid app preferences.', 422);
+    }
+    _checkRevision(
+      expected,
+      _appSettings['revision'] as int,
+      'settings_conflict',
+    );
+    if (body['default_vehicle_id'] != null) {
+      _find('vehicles', body['default_vehicle_id'] as String);
+    }
+    final saved = <String, dynamic>{
+      'revision': expected + 1,
+      'customized': true,
+      'default_vehicle_id': body['default_vehicle_id'],
+      'default_estimate_discipline': body['default_estimate_discipline'],
+      'home_tab': body['home_tab'],
+    };
+    _state['settings'] = saved;
+    return _copy(saved);
+  }
+
+  @override
+  Future<Json> resetAppSettings(
+    int expectedRevision, {
+    required bool Function() isCurrent,
+  }) async {
+    _checkSettingsSession(isCurrent);
+    _expectedRevision(expectedRevision);
+    _checkRevision(
+      expectedRevision,
+      _appSettings['revision'] as int,
+      'settings_conflict',
+    );
+    final reset = _defaultAppSettings(expectedRevision + 1);
+    _state['settings'] = reset;
+    return _copy(reset);
+  }
+
+  @override
+  Future<Json> getProfileSettings({bool Function()? isCurrent}) async {
+    _checkSettingsSession(isCurrent);
+    return _copy(_state['profile'] as Json);
+  }
+
+  @override
+  Future<Json> saveProfileSettings(
+    Json body, {
+    required bool Function() isCurrent,
+  }) async {
+    _checkSettingsSession(isCurrent);
+    return saveProfile(body);
+  }
+
+  @override
+  Future<Json> clearProfileSettings(
+    int expectedRevision, {
+    required bool Function() isCurrent,
+  }) async {
+    _checkSettingsSession(isCurrent);
+    return saveProfile({
+      'expected_revision': expectedRevision,
+      'name': '',
+      'phone': '',
+      'postal_code': '',
+      'contact_preference': 'email',
+    });
+  }
+
   @override
   Future<Json> saveProfile(Json body) async {
-    (_state['profile'] as Json).addAll(body);
-    return _state['profile'] as Json;
+    _onlyKeys(body, {
+      'name',
+      'phone',
+      'postal_code',
+      'contact_preference',
+      'expected_revision',
+    });
+    final previous = _state['profile'] as Json;
+    final revision = previous['revision'] as int? ?? 0;
+    final expected = body.containsKey('expected_revision')
+        ? _expectedRevision(body['expected_revision'])
+        : null;
+    final saved = _copy(previous);
+    for (final (key, limit) in [
+      ('name', 200),
+      ('phone', 50),
+      ('postal_code', 30),
+    ]) {
+      if (!body.containsKey(key)) continue;
+      final value = body[key];
+      if (value is! String ||
+          RegExp(r'[\x00-\x1f\x7f]').hasMatch(value) ||
+          value.trim().runes.length > limit) {
+        throw const PlusApiException('Enter valid profile details.', 422);
+      }
+      saved[key] = value.trim();
+    }
+    if (body.containsKey('contact_preference')) {
+      final value = body['contact_preference'];
+      if (value is! String ||
+          RegExp(r'[\x00-\x1f\x7f]').hasMatch(value) ||
+          !{'email', 'phone'}.contains(value.trim())) {
+        throw const PlusApiException(
+          'Choose email or phone as your contact preference.',
+          422,
+        );
+      }
+      saved['contact_preference'] = value.trim();
+    }
+    final phone = saved['phone'] as String;
+    final digits = phone.replaceAll(RegExp(r'[^0-9]'), '');
+    if (phone.isNotEmpty &&
+        (!RegExp(r'^\+?[0-9 ().-]+$').hasMatch(phone) ||
+            digits.length < 7 ||
+            digits.length > 15)) {
+      throw const PlusApiException(
+        'Enter a valid phone number with 7 to 15 digits.',
+        422,
+      );
+    }
+    final postal = saved['postal_code'] as String;
+    if (postal.isNotEmpty) {
+      if (!RegExp(r'^[0-9]{5}(?:-[0-9]{4})?$').hasMatch(postal)) {
+        throw const PlusApiException('Enter a valid ZIP code.', 422);
+      }
+      saved['postal_code'] = postal.substring(0, 5);
+    }
+    if (expected != null) {
+      _checkRevision(expected, revision, 'profile_conflict');
+    }
+    if (saved['contact_preference'] == 'phone' && phone.isEmpty) {
+      throw const PlusApiException(
+        'Add a phone number or choose email as your contact preference.',
+        422,
+      );
+    }
+    saved['revision'] = revision + 1;
+    _state['profile'] = saved;
+    return _copy(saved);
   }
 
   @override
@@ -658,6 +900,13 @@ class DemoPlusRepository extends PlusRepository {
       );
     }
     _rows('vehicles').removeWhere((row) => row['id'] == id);
+    if (_appSettings['default_vehicle_id'] == id) {
+      _state['settings'] = {
+        ..._appSettings,
+        'default_vehicle_id': null,
+        'revision': (_appSettings['revision'] as int) + 1,
+      };
+    }
   }
 
   @override

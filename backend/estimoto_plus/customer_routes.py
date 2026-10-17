@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Query
 from starlette.datastructures import UploadFile
 from starlette.concurrency import run_in_threadpool
 from fastapi.responses import Response, JSONResponse
@@ -19,9 +19,9 @@ from .auth import current_customer, db_session
 from .assistant_model import enhance_advice
 from .graph import history_question, retrieve_history, history_answer
 from .graph_models import KnowledgeRecord
-from .models import Customer, Estimate, EstimateOutbox, Outbox, Photo, Provider, RateBucket, Reminder, Repair, RequestEvent, RequestRejection, ServiceRequest, Vehicle, now, uid
+from .models import Customer, CustomerSettings, Estimate, EstimateOutbox, Outbox, Photo, Provider, RateBucket, Reminder, Repair, RequestEvent, RequestRejection, ServiceRequest, Vehicle, now, uid
 from .postal import canonical_zip
-from .schemas import AssistantInput, EstimateCreate, EstimateSubmit, ProfileWrite, ReminderCreate, ReminderUpdate, EstimateUpdate, RequestCreate, VehicleCreate, VehicleUpdate
+from .schemas import AssistantInput, EstimateCreate, EstimateSubmit, ProfileWrite, SettingsWrite, ReminderCreate, ReminderUpdate, EstimateUpdate, RequestCreate, VehicleCreate, VehicleUpdate
 from .workflow import bridge_details, creation_payload, payload_hash, queue_cancellation
 
 from .calendar_scheduling import check_slots, legacy_payload, sync_view, preferred_times, lock_customer
@@ -58,7 +58,24 @@ def iso(value):
 
 
 def profile(c):
-    return {k: getattr(c, k) for k in ("id", "email", "name", "phone", "postal_code", "contact_preference")}
+    return {**{k: getattr(c, k) for k in ("id", "email", "name", "phone", "postal_code", "contact_preference")},
+            "revision": c.profile_revision}
+
+
+def settings_view(row):
+    defaults = {"revision": 0, "customized": False, "default_vehicle_id": None,
+                "default_estimate_discipline": "pdr", "home_tab": "garage"}
+    return {key: getattr(row, key) for key in defaults} if row is not None else defaults
+
+
+def check_revision(expected, actual, kind):
+    if expected is not None and expected != actual:
+        raise HTTPException(409, {"detail": "Your saved details changed. Reload before saving again.",
+                                  "code": f"{kind}_conflict"})
+
+
+def reset_revision(expected_revision: str = Query(pattern=r"^(0|[1-9][0-9]*)$", max_length=20)):
+    return int(expected_revision)
 
 
 def vehicle(v):
@@ -133,7 +150,8 @@ def matching_providers(db, specialty=None, postal_code=None, mobile_only=False, 
 @router.get("/bootstrap")
 def bootstrap(request: Request, c: Customer = Depends(current_customer), db: Session = Depends(db_session)):
     ids = c.id
-    return {"profile": profile(c), "vehicles": [vehicle(v) for v in db.scalars(select(Vehicle).where(Vehicle.customer_id == ids)).all()],
+    return {"profile": profile(c), "settings": settings_view(db.get(CustomerSettings, ids)),
+            "vehicles": [vehicle(v) for v in db.scalars(select(Vehicle).where(Vehicle.customer_id == ids)).all()],
             "providers": [provider(p) for p in matching_providers(db, demo=c.demo)],
             "estimates": [estimate_view(db, e) for e in db.scalars(select(Estimate).where(Estimate.customer_id == ids)).all()],
             "repairs": [repair_view(r) for r in db.scalars(select(Repair).where(Repair.customer_id == ids)).all()],
@@ -147,13 +165,81 @@ def bootstrap(request: Request, c: Customer = Depends(current_customer), db: Ses
                              "carfax": False, "youtube_search": False, "demo": c.demo}}
 
 
+@router.get("/profile")
+def get_profile(c: Customer = Depends(current_customer)):
+    return profile(c)
+
+
 @router.put("/profile")
 def update_profile(body: ProfileWrite, c: Customer = Depends(current_customer), db: Session = Depends(db_session)):
-    for k, v in body.model_dump().items():
+    lock_customer(db, c.id)
+    db.refresh(c)
+    check_revision(body.expected_revision, c.profile_revision, "profile")
+    changes = body.model_dump(exclude_unset=True, exclude={"expected_revision"})
+    if changes.get("contact_preference", c.contact_preference) == "phone" and not changes.get("phone", c.phone):
+        raise HTTPException(422, "Add a phone number or choose email contact.")
+    for k, v in changes.items():
         setattr(c, k, v)
-    db.add(c)
+    c.profile_revision += 1
     db.commit()
     return profile(c)
+
+
+@router.delete("/profile")
+def reset_profile(expected_revision: int = Depends(reset_revision), c: Customer = Depends(current_customer),
+                  db: Session = Depends(db_session)):
+    lock_customer(db, c.id)
+    db.refresh(c)
+    check_revision(expected_revision, c.profile_revision, "profile")
+    c.name = c.phone = c.postal_code = ""
+    c.contact_preference = "email"
+    c.profile_revision += 1
+    db.commit()
+    return profile(c)
+
+
+@router.get("/settings")
+def get_settings(c: Customer = Depends(current_customer), db: Session = Depends(db_session)):
+    return settings_view(db.get(CustomerSettings, c.id))
+
+
+@router.put("/settings")
+def update_settings(body: SettingsWrite, c: Customer = Depends(current_customer), db: Session = Depends(db_session)):
+    lock_customer(db, c.id)
+    db.expire_all()
+    row = db.get(CustomerSettings, c.id)
+    revision = row.revision if row else 0
+    check_revision(body.expected_revision, revision, "settings")
+    if body.default_vehicle_id is not None:
+        owned(db, Vehicle, body.default_vehicle_id, c)
+    if row is None:
+        row = CustomerSettings(customer_id=c.id)
+        db.add(row)
+    for key, value in body.model_dump(exclude={"expected_revision"}).items():
+        setattr(row, key, value)
+    row.customized = True
+    row.revision = revision + 1
+    db.commit()
+    return settings_view(row)
+
+
+@router.delete("/settings")
+def reset_settings(expected_revision: int = Depends(reset_revision), c: Customer = Depends(current_customer),
+                   db: Session = Depends(db_session)):
+    lock_customer(db, c.id)
+    db.expire_all()
+    row = db.get(CustomerSettings, c.id)
+    revision = row.revision if row else 0
+    check_revision(expected_revision, revision, "settings")
+    if row is None:
+        row = CustomerSettings(customer_id=c.id)
+        db.add(row)
+    # Keep the revision even after reset so an old editor cannot recreate stale settings.
+    for key, value in settings_view(None).items():
+        setattr(row, key, value)
+    row.revision = revision + 1
+    db.commit()
+    return settings_view(row)
 
 
 @router.post("/vehicles", status_code=201)
@@ -181,6 +267,11 @@ def delete_vehicle(vehicle_id: str, request: Request, c: Customer = Depends(curr
     if any(db.scalar(select(m.id).where(m.vehicle_id == v.id)) for m in (ServiceRequest, Estimate, Repair, Reminder, KnowledgeRecord)):
         raise HTTPException(409, "Vehicle is in use.")
     image_name = v.image_storage_name
+    preferences = db.get(CustomerSettings, c.id)
+    if preferences is not None and preferences.default_vehicle_id == v.id:
+        preferences.default_vehicle_id = None
+        preferences.revision += 1
+        db.flush()
     db.delete(v)
     db.commit()
     if image_name:

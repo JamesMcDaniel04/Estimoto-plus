@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 from .calendar_scheduling import CalendarChecked
 
 from datetime import date as Date, datetime
@@ -14,10 +15,30 @@ class Strict(BaseModel):
 
 
 class ProfileWrite(Strict):
-    name: str = Field(default="", max_length=200)
-    phone: str = Field(default="", max_length=50)
-    postal_code: str = Field(default="", max_length=30)
-    contact_preference: Literal["email", "phone"] = "email"
+    name: str | None = Field(default=None, max_length=200)
+    phone: str | None = Field(default=None, max_length=50)
+    postal_code: str | None = Field(default=None, max_length=30)
+    contact_preference: Literal["email", "phone"] | None = None
+    expected_revision: int | None = Field(default=None, strict=True, ge=0)
+
+    @field_validator("name", "phone", "postal_code", "contact_preference", "expected_revision", mode="before")
+    @classmethod
+    def supplied_value(cls, value):
+        if value is None:
+            raise ValueError("Profile fields cannot be null")
+        if isinstance(value, str):
+            if re.search(r"[\x00-\x1f\x7f]", value):
+                raise ValueError("Control characters are not allowed")
+            return value.strip()
+        return value
+
+    @field_validator("phone")
+    @classmethod
+    def valid_phone(cls, value):
+        if value and (not re.fullmatch(r"\+?[0-9 ().-]+", value) or
+                      not 7 <= len(re.sub(r"[^0-9]", "", value)) <= 15):
+            raise ValueError("Enter a valid phone number")
+        return value
 
     @field_validator("postal_code")
     @classmethod
@@ -28,6 +49,13 @@ class ProfileWrite(Strict):
         if result is None:
             raise ValueError("Enter a valid ZIP code")
         return result
+
+
+class SettingsWrite(Strict):
+    expected_revision: int = Field(strict=True, ge=0)
+    default_vehicle_id: str | None = Field(min_length=1, max_length=36)
+    default_estimate_discipline: Literal["pdr", "collision"]
+    home_tab: Literal["garage", "estimates", "repairs", "find_help"]
 
 
 class VehicleCreate(Strict):

@@ -39,7 +39,7 @@ from .shop_media_catalog import router as shop_media_router
 
 # Readiness fails closed until the database carries exactly this migration.
 # tests/test_readiness.py keeps it equal to the Alembic head.
-EXPECTED_SCHEMA_REVISION = "d9e4b82013c7"
+EXPECTED_SCHEMA_REVISION = "e2f714a09bc3"
 
 
 def create_app(settings: Settings | None = None, *, auth_verifier=None, auth_client=None, bridge_transport=None):

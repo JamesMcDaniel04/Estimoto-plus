@@ -42,6 +42,36 @@ abstract class PlusRepository {
       throw const PlusApiException('Past lookups cannot be removed right now.');
   Future<PlusSnapshot> bootstrap();
   Future<Json> saveProfile(Json body);
+  Future<Json> getProfileSettings({bool Function()? isCurrent}) =>
+      _settingsUnavailable();
+  Future<Json> saveProfileSettings(
+    Json body, {
+    required bool Function() isCurrent,
+  }) => _settingsUnavailable();
+  Future<Json> clearProfileSettings(
+    int expectedRevision, {
+    required bool Function() isCurrent,
+  }) => _settingsUnavailable();
+  Future<Json> getAppSettings({bool Function()? isCurrent}) =>
+      _settingsUnavailable();
+  Future<Json> saveAppSettings(
+    Json body, {
+    required bool Function() isCurrent,
+  }) => _settingsUnavailable();
+  Future<Json> resetAppSettings(
+    int expectedRevision, {
+    required bool Function() isCurrent,
+  }) => _settingsUnavailable();
+  Future<Json> getKnowledgePreferences({bool Function()? isCurrent}) =>
+      _settingsUnavailable();
+  Future<Json> saveKnowledgePreferencesScoped(
+    Json body, {
+    required bool Function() isCurrent,
+  }) => _settingsUnavailable();
+  Future<Json> _settingsUnavailable() => throw const PlusApiException(
+    'Settings are unavailable. Please try again later.',
+    503,
+  );
   Future<Json> saveVehicle(Json body, {String? id});
   Future<void> deleteVehicle(String id);
   Future<VehiclePhoto?> getVehicleImage(String id) async => null;

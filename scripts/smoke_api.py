@@ -115,7 +115,11 @@ def api_process(env, port, log_path):
 def run(flutter_client):
     with tempfile.TemporaryDirectory(prefix='estimoto-plus-smoke-') as directory, fixtures() as (fixture_url, tokens, bridge_key, deliveries):
         temp = Path(directory)
-        env = {**os.environ, 'DATABASE_URL': f'sqlite:///{temp / "customer.sqlite"}', 'ENVIRONMENT': 'development', 'PHOTO_DIR': str(temp / 'photos'), 'SUPABASE_URL': fixture_url, 'SUPABASE_PUBLISHABLE_KEY': 'fictional-local-publishable-key', 'BRIDGE_REQUEST_URL': fixture_url + '/receive', 'BRIDGE_KEY': bridge_key, 'DEV_SESSIONS_ENABLED': 'true', 'DEV_TOKEN_SECRET': secrets.token_urlsafe(40), 'CORS_ORIGINS': 'http://127.0.0.1:4318', 'PYTHONPATH': str(ROOT / 'backend'), 'HTTP_PROXY': '', 'HTTPS_PROXY': '', 'ALL_PROXY': '', 'NO_PROXY': '127.0.0.1,localhost'}
+        # Retain only process/runtime settings; provider credentials and toggles
+        # from the caller must never activate a live integration in this smoke.
+        env = {key: value for key, value in os.environ.items()
+               if key in {'PATH', 'HOME', 'LANG', 'LC_ALL', 'SYSTEMROOT', 'TMPDIR'}}
+        env.update({'DATABASE_URL': f'sqlite:///{temp / "customer.sqlite"}', 'ENVIRONMENT': 'development', 'PHOTO_DIR': str(temp / 'photos'), 'SUPABASE_URL': fixture_url, 'SUPABASE_PUBLISHABLE_KEY': 'fictional-local-publishable-key', 'BRIDGE_REQUEST_URL': fixture_url + '/receive', 'BRIDGE_ESTIMATE_URL': '', 'BRIDGE_KEY': bridge_key, 'DEV_SESSIONS_ENABLED': 'true', 'DEV_TOKEN_SECRET': secrets.token_urlsafe(40), 'CORS_ORIGINS': 'http://127.0.0.1:4318', 'PYTHONPATH': str(ROOT / 'backend'), 'WORKER_ENABLED': 'false', 'PLACES_ENABLED': 'false', 'DISCOVERY_ENABLED': 'false', 'GOOGLE_CALENDAR_ENABLED': 'false', 'VALUATION_ENABLED': 'false', 'HTTP_PROXY': '', 'HTTPS_PROXY': '', 'ALL_PROXY': '', 'NO_PROXY': '127.0.0.1,localhost'})
         subprocess.run([sys.executable, '-m', 'alembic', 'upgrade', 'head'], cwd=ROOT / 'backend', env=env, check=True)
         subprocess.run([sys.executable, '-m', 'alembic', 'check'], cwd=ROOT / 'backend', env=env, check=True)
         port = free_port()
@@ -123,7 +127,11 @@ def run(flutter_client):
         bridge = {'X-Bridge-Key': bridge_key}
         with api_process(env, port, temp / 'api.log') as url, httpx.Client(base_url=url, headers=auth, timeout=10, trust_env=False) as client:
             check(client.get('/v1/bootstrap').status_code == 200, 'Identity fixture failed.')
-            check(client.put('/v1/profile', json={'name': 'Socket Customer', 'postal_code': '80202'}).status_code == 200, 'Profile save failed.')
+            profile = client.get('/v1/profile').json()
+            saved_profile = client.put('/v1/profile', json={'name': 'Socket Customer', 'phone': '+1 (303) 555-0100', 'postal_code': '80202-1234', 'expected_revision': profile['revision']}).json()
+            check(saved_profile['revision'] == 1 and saved_profile['postal_code'] == '80202', 'Profile save or ZIP canonicalization failed.')
+            partial_profile = client.put('/v1/profile', json={'name': 'Socket Driver', 'expected_revision': 1}).json()
+            check(partial_profile['revision'] == 2 and partial_profile['postal_code'] == '80202' and partial_profile['phone'] == saved_profile['phone'], 'Partial profile save erased omitted details.')
             car = client.post('/v1/vehicles', json={'year': 2024, 'make': 'Toyota', 'model': 'Camry', 'mileage': 8200}).json()
             provider = client.post('/v1/bridge/providers', headers=bridge, json={'source_id': 'socket-provider', 'name': 'Fictional Socket Dent Care', 'kind': 'technician', 'specialties': ['pdr'], 'postal_codes': ['80202'], 'public_visible': True, 'accepting_requests': True, 'mobile_service': True}).json()
             body = {'vehicle_id': car['id'], 'provider_id': provider['id'], 'specialty': 'pdr', 'description': 'Socket door dent.', 'preferred_time': 'Next week', 'share_contact': True}
@@ -158,14 +166,52 @@ def run(flutter_client):
             check(client.get(photo_url, headers=other).status_code == 404, 'Cross-customer photo access allowed.')
             check(client.put(f'/v1/vehicles/{car["id"]}', headers=other, json={'mileage': 1}).status_code == 404, 'Cross-customer garage edit allowed.')
             check(client.get('/v1/bootstrap', headers=other).json()['requests'] == [], 'Cross-customer request leaked.')
+            defaults = client.get('/v1/settings').json()
+            check(defaults == {'revision': 0, 'customized': False, 'default_vehicle_id': None, 'default_estimate_discipline': 'pdr', 'home_tab': 'garage'}, 'Unset app preferences did not return defaults.')
+            preferences = {'expected_revision': 0, 'default_vehicle_id': car['id'], 'default_estimate_discipline': 'collision', 'home_tab': 'find_help'}
+            saved_settings = client.put('/v1/settings', json=preferences).json()
+            check(saved_settings['revision'] == 1 and saved_settings['customized'] and saved_settings['default_vehicle_id'] == car['id'], 'App preferences save failed.')
+            conflict = client.put('/v1/settings', json={**preferences, 'home_tab': 'repairs'})
+            check(conflict.status_code == 409 and conflict.json()['code'] == 'settings_conflict', 'Stale app preferences overwrote saved values.')
+            reset_settings = client.delete('/v1/settings', params={'expected_revision': 1}).json()
+            check(reset_settings == {**defaults, 'revision': 2}, 'Preferences reset lost its revision tombstone.')
+            stale_reset = client.delete('/v1/settings', params={'expected_revision': 1})
+            check(stale_reset.status_code == 409, 'Stale preferences reset was accepted.')
+            saved_settings = client.put('/v1/settings', json={**preferences, 'expected_revision': 2}).json()
+            check(saved_settings['revision'] == 3, 'Preferences could not be recreated after reset.')
+            check(client.get('/v1/settings', headers=other).json() == defaults, 'App preferences leaked across customers.')
+            check(client.put('/v1/settings', headers=other, json=preferences).status_code == 404, 'A customer selected another customer vehicle as default.')
+            privacy = client.get('/v1/knowledge/preferences').json()
+            check(privacy['share_aggregate_insights'] is False, 'Aggregate sharing was enabled by default.')
+            saved_privacy = client.put('/v1/knowledge/preferences', json={'share_aggregate_insights': True}).json()
+            check(saved_privacy['share_aggregate_insights'] and saved_privacy['policy_version'] == privacy['policy_version'], 'Privacy preferences save failed.')
+            check(client.get('/v1/knowledge').json()['preferences']['share_aggregate_insights'], 'Settings privacy and service-history privacy diverged.')
+            check(not client.get('/v1/knowledge/preferences', headers=other).json()['share_aggregate_insights'], 'Privacy preferences leaked across customers.')
+            cleared_profile = client.delete('/v1/profile', params={'expected_revision': 2}).json()
+            check(cleared_profile == {**profile, 'revision': 3}, 'Clearing contact details changed account identity or retained contact data.')
+            stale_profile = client.put('/v1/profile', json={'expected_revision': 2, 'name': 'Stale name'})
+            check(stale_profile.status_code == 409 and stale_profile.json()['code'] == 'profile_conflict', 'A stale editor restored cleared profile details.')
+            check(client.put('/v1/profile', json={'id': 'other-customer'}).status_code == 422, 'Profile settings allowed account identity mutation.')
+            check(client.get('/v1/bootstrap').json()['settings'] == saved_settings, 'Bootstrap omitted saved preferences.')
             if flutter_client:
-                subprocess.run(['dart', 'run', 'tool/smoke_api.dart'], cwd=ROOT / 'app', env={**os.environ, 'PLUS_SMOKE_API': url}, check=True)
+                subprocess.run(['dart', 'run', 'tool/smoke_api.dart'], cwd=ROOT / 'app', env={**env, 'PLUS_SMOKE_API': url}, check=True)
         with api_process(env, port, temp / 'api.log') as url, httpx.Client(base_url=url, headers=auth, timeout=10, trust_env=False) as client:
             state = client.get('/v1/bootstrap').json()
             check(any(v['id'] == car['id'] for v in state['vehicles']), 'Restart lost garage records.')
             check(state['requests'][0]['status'] == 'cancelled', 'Restart lost request cancellation.')
             check(client.get(photo_url).status_code == 200, 'Restart lost private photo.')
-        print('API socket smoke: migrations, two customer identities, private photos, reminder and draft edit/delete, durable request/replay/cancel, fictional bridge receipts and restart persistence passed.')
+            check(state['profile'] == cleared_profile, 'Restart restored cleared profile details or changed account identity.')
+            check(state['settings'] == saved_settings, 'Restart lost app preferences or their revision.')
+            check(client.get('/v1/knowledge/preferences').json() == saved_privacy, 'Restart lost privacy consent.')
+            final_settings = client.delete('/v1/settings', params={'expected_revision': saved_settings['revision']}).json()
+            check(final_settings == {**defaults, 'revision': 4}, 'Persisted preferences could not be reset after restart.')
+            check(client.put('/v1/knowledge/preferences', json={'share_aggregate_insights': False}).status_code == 200, 'Aggregate sharing could not be disabled.')
+        with api_process(env, port, temp / 'api.log') as url, httpx.Client(base_url=url, headers=auth, timeout=10, trust_env=False) as client:
+            check(client.get('/v1/settings').json() == final_settings, 'Restart lost the preferences reset revision.')
+            check(not client.get('/v1/knowledge/preferences').json()['share_aggregate_insights'], 'Restart restored withdrawn privacy consent.')
+            conflict = client.put('/v1/settings', json={**preferences, 'expected_revision': 3})
+            check(conflict.status_code == 409 and conflict.json()['code'] == 'settings_conflict', 'A stale editor recreated reset preferences after restart.')
+        print('API socket smoke: migrations, isolated identities, settings/profile/privacy CRUD and conflicts, private photos, reminder and draft edit/delete, durable request/replay/cancel, fictional bridge receipts and restart persistence passed.')
 
 
 if __name__ == '__main__':

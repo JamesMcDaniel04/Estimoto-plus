@@ -172,7 +172,6 @@ void main() {
       final liveController = await _controller(repository);
       await repository.saveProfile({
         'name': 'Changed after draft',
-        'email': 'changed@example.test',
       });
       await liveController.refresh();
       await _mount(

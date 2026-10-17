@@ -76,6 +76,7 @@ class PlusLauncher extends StatefulWidget {
 
 class _PlusLauncherState extends State<PlusLauncher> {
   PlusController? controller;
+  final _pendingExits = <PlusController>{};
   StreamSubscription<String?>? authSubscription;
   String? error, liveUserId;
   @override
@@ -180,22 +181,43 @@ class _PlusLauncherState extends State<PlusLauncher> {
     WidgetsBinding.instance.addPostFrameCallback((_) => previous?.dispose());
   }
 
-  Future<void> _exit() async {
-    final isDemo = controller?.repository.isDemo == true;
-    if (!isDemo && widget.auth != null) {
-      try {
-        await widget.auth!.signOut();
-      } catch (_) {
-        if (mounted) {
-          setState(
-            () => error = 'Sign-out could not complete. Please try again.',
-          );
-          controller?.reportSessionError();
+  Future<void> _exit(
+    PlusController originalController,
+    String? originalUserId,
+  ) async {
+    bool current() =>
+        mounted &&
+        identical(controller, originalController) &&
+        liveUserId == originalUserId;
+    if (!current() || !_pendingExits.add(originalController)) return;
+    final auth = widget.auth;
+    try {
+      if (!originalController.repository.isDemo && auth != null) {
+        // An identity event can still be queued when the old button is tapped.
+        if (auth.userId != originalUserId) return;
+        try {
+          await auth.signOut();
+        } catch (_) {
+          if (current() &&
+              identical(widget.auth, auth) &&
+              auth.userId == originalUserId) {
+            setState(
+              () => error = 'Sign-out could not complete. Please try again.',
+            );
+            originalController.reportSessionError();
+          }
+          return;
         }
-        return;
+        if (!identical(widget.auth, auth) ||
+            (auth.userId != null && auth.userId != originalUserId)) {
+          return;
+        }
       }
+      if (current()) _clearController();
+    } finally {
+      // Account B may have its own exit pending while account A finishes.
+      _pendingExits.remove(originalController);
     }
-    if (mounted && controller != null) _clearController();
   }
 
   @override
@@ -207,11 +229,13 @@ class _PlusLauncherState extends State<PlusLauncher> {
 
   @override
   Widget build(BuildContext context) {
-    if (controller != null) {
+    final currentController = controller;
+    final currentUserId = liveUserId;
+    if (currentController != null) {
       return EstimotoPlusApp(
-        key: ObjectKey(controller),
-        controller: controller!,
-        onExit: _exit,
+        key: ObjectKey(currentController),
+        controller: currentController,
+        onExit: () => _exit(currentController, currentUserId),
       );
     }
     return MaterialApp(

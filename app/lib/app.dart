@@ -127,7 +127,7 @@ class _HomeShellState extends State<_HomeShell> with WidgetsBindingObserver {
               ],
               onSelected: (value) => value == 'settings'
                   ? SettingsScreen.open(context, c, onExit: widget.onExit)
-                  : widget.onExit?.call(),
+                  : SettingsScreen.confirmExit(context, c, widget.onExit),
             ),
           ],
         ),

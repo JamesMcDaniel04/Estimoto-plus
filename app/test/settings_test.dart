@@ -50,6 +50,22 @@ Future<void> _tap(WidgetTester tester, Finder finder) async {
 }
 
 void main() {
+  testWidgets('account menu sign-out also asks for confirmation', (
+    tester,
+  ) async {
+    var exits = 0;
+    final controller = await _controller(_Repository());
+    await tester.pumpWidget(
+      EstimotoPlusApp(controller: controller, onExit: () => exits++),
+    );
+    await tester.pumpAndSettle();
+    await _tap(tester, find.byTooltip('Account options'));
+    await _tap(tester, find.text('Leave demo'));
+    expect(exits, 0);
+    expect(find.text('Leave the demo?'), findsOneWidget);
+    await _tap(tester, find.text('Stay'));
+    expect(exits, 0);
+  });
   testWidgets('settings opens from the account menu with the email read-only', (
     tester,
   ) async {
@@ -92,6 +108,7 @@ void main() {
       'phone': '3035550100',
       'postal_code': '80202',
       'contact_preference': 'email',
+      'expected_revision': 1,
     });
     expect(find.text('Profile saved'), findsOneWidget);
     expect(controller.snapshot!.profile.name, 'Jordan Lee');

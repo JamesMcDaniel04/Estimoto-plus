@@ -25,7 +25,18 @@ class Customer(Base):
     phone: Mapped[str] = mapped_column(String(50), default="")
     postal_code: Mapped[str] = mapped_column(String(30), default="")
     contact_preference: Mapped[str] = mapped_column(String(10), default="email")
+    profile_revision: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     demo: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class CustomerSettings(Base):
+    __tablename__ = "customer_settings"
+    customer_id: Mapped[str] = mapped_column(ForeignKey("customers.id"), primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer, default=0)
+    customized: Mapped[bool] = mapped_column(Boolean, default=False)
+    default_vehicle_id: Mapped[str | None] = mapped_column(ForeignKey("vehicles.id"), nullable=True)
+    default_estimate_discipline: Mapped[str] = mapped_column(String(20), default="pdr")
+    home_tab: Mapped[str] = mapped_column(String(20), default="garage")
 
 
 class RateBucket(Base):

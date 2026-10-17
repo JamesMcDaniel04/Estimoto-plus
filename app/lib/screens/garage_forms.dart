@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../domain/models.dart';
+import '../data/repository.dart';
 import '../state/plus_controller.dart';
 import '../widgets/common.dart';
 
@@ -227,117 +228,287 @@ class ProfileForm extends StatefulWidget {
 
 class _ProfileFormState extends State<ProfileForm> {
   late final TextEditingController name, phone, postal;
-  bool busy = false;
+  late final PlusController boundController;
+  late final String owner;
+  late CustomerProfile baseline;
+  bool busy = false, conflict = false, confirming = false;
   String? error;
   String preference = 'email';
   final form = GlobalKey<FormState>();
+  bool get active =>
+      mounted &&
+      identical(widget.controller, boundController) &&
+      boundController.isCurrentCustomer(owner);
+  bool get dirty =>
+      name.text != baseline.name ||
+      phone.text != baseline.phone ||
+      postal.text != baseline.postalCode ||
+      preference != textOf(baseline.json, 'contact_preference', 'email');
+  bool get changedElsewhere {
+    final saved = boundController.snapshot!.profile;
+    return saved.revision != baseline.revision ||
+        saved.name != baseline.name ||
+        saved.phone != baseline.phone ||
+        saved.postalCode != baseline.postalCode ||
+        textOf(saved.json, 'contact_preference', 'email') !=
+            textOf(baseline.json, 'contact_preference', 'email');
+  }
+
   @override
   void initState() {
     super.initState();
-    final p = widget.controller.snapshot!.profile;
-    name = TextEditingController(text: p.name);
-    phone = TextEditingController(text: p.phone);
-    postal = TextEditingController(text: p.postalCode);
-    preference = textOf(p.json, 'contact_preference', 'email');
+    boundController = widget.controller;
+    owner = boundController.snapshot!.profile.id;
+    baseline = boundController.snapshot!.profile;
+    name = TextEditingController(text: baseline.name);
+    phone = TextEditingController(text: baseline.phone);
+    postal = TextEditingController(text: baseline.postalCode);
+    preference = textOf(baseline.json, 'contact_preference', 'email');
+    boundController.addListener(changed);
+  }
+
+  void sync() {
+    baseline = boundController.snapshot!.profile;
+    name.text = baseline.name;
+    phone.text = baseline.phone;
+    postal.text = baseline.postalCode;
+    preference = textOf(baseline.json, 'contact_preference', 'email');
+    conflict = false;
+    error = null;
+  }
+
+  void changed() {
+    if (!mounted) return;
+    if (active && !busy && !dirty) sync();
+    setState(() {});
   }
 
   @override
   void dispose() {
+    boundController.removeListener(changed);
     name.dispose();
     phone.dispose();
     postal.dispose();
     super.dispose();
   }
 
+  Future<void> reload() async {
+    if (!active || busy) return;
+    if (!conflict) {
+      setState(sync);
+      return;
+    }
+    setState(() => busy = true);
+    try {
+      await boundController.reloadProfileSettings();
+      if (active) setState(sync);
+    } catch (e) {
+      if (active) setState(() => error = PlusController.readableError(e));
+    } finally {
+      if (active) setState(() => busy = false);
+    }
+  }
+
   Future<void> save() async {
-    if (!form.currentState!.validate()) return;
+    if (!active ||
+        busy ||
+        conflict ||
+        changedElsewhere ||
+        !form.currentState!.validate()) {
+      return;
+    }
+    final body = <String, dynamic>{
+      'name': name.text.trim(),
+      'phone': phone.text.trim(),
+      'postal_code': postal.text.trim(),
+      'contact_preference': preference,
+    };
+    final revision = baseline.revision;
     setState(() {
       busy = true;
       error = null;
     });
     try {
-      await widget.controller.repository.saveProfile({
-        'name': name.text.trim(),
-        'phone': phone.text.trim(),
-        'postal_code': postal.text.trim(),
-        'contact_preference': preference,
+      await boundController.saveProfileSettings(
+        body,
+        expectedRevision: revision,
+      );
+      if (!mounted || !active) return;
+      setState(() {
+        sync();
+        busy = false;
       });
-      await widget.controller.refresh();
-      if (!mounted) return;
       if (widget.inline) {
-        setState(() => busy = false);
         widget.onSaved?.call();
       } else {
         Navigator.pop(context);
       }
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          error = PlusController.readableError(e);
-          busy = false;
-        });
-      }
+      if (!mounted || !active) return;
+      setState(() {
+        error = PlusController.readableError(e);
+        conflict = e is PlusApiException && e.statusCode == 409;
+        busy = false;
+      });
     }
+  }
+
+  Future<void> clear() async {
+    if (!active || busy) return;
+    final revision = boundController.snapshot!.profile.revision;
+    // Lock while the dialog is open, including captured callbacks.
+    setState(() {
+      busy = true;
+      confirming = true;
+    });
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Clear profile details?'),
+        content: const Text(
+          'Remove your name, phone and service ZIP, and return preferred contact to email. Your sign-in email, vehicles, estimates and history stay in your account. Details already shared with a shop are not recalled.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Keep details'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Clear details'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || !active) return;
+    setState(() => confirming = false);
+    if (confirmed != true) {
+      setState(() => busy = false);
+      return;
+    }
+    try {
+      await boundController.clearProfileSettings(expectedRevision: revision);
+      if (!mounted || !active) return;
+      setState(() {
+        sync();
+        busy = false;
+      });
+      showMessage(context, 'Profile details cleared');
+    } catch (e) {
+      if (!mounted || !active) return;
+      setState(() {
+        error = PlusController.readableError(e);
+        conflict = e is PlusApiException && e.statusCode == 409;
+        busy = false;
+      });
+    }
+  }
+
+  String? validatePhone(String? value) {
+    final input = value?.trim() ?? '';
+    if (input.isEmpty) {
+      return preference == 'phone'
+          ? 'Add a phone number or choose email.'
+          : null;
+    }
+    final digits = input.replaceAll(RegExp(r'\D'), '');
+    return RegExp(r'^\+?[0-9 ().-]+$').hasMatch(input) &&
+            digits.length >= 7 &&
+            digits.length <= 15
+        ? null
+        : 'Enter a valid phone number with 7–15 digits.';
   }
 
   @override
   Widget build(BuildContext context) {
+    if (!active) return const SizedBox.shrink();
+    final changed = changedElsewhere;
     final fields = Form(
       key: form,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (!widget.inline) ...[
-            Text(widget.controller.snapshot!.profile.email),
+            Text(baseline.email),
             const SizedBox(height: 20),
           ],
           TextFormField(
             controller: name,
-            decoration: const InputDecoration(labelText: 'Name'),
-            maxLength: 120,
-            validator: (v) =>
-                (v?.trim().isEmpty ?? true) ? 'Enter your name' : null,
+            enabled: !busy,
+            decoration: const InputDecoration(
+              labelText: 'Name',
+              helperText: 'Optional',
+            ),
+            maxLength: 200,
+            onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: 12),
-          ListenableBuilder(
-            listenable: phone,
-            builder: (context, _) => TextFormField(
-              controller: phone,
-              decoration: InputDecoration(
-                labelText: 'Phone (optional)',
-                suffixIcon: phone.text.isEmpty
-                    ? null
-                    : IconButton(
-                        tooltip: 'Clear phone',
-                        icon: const Icon(Icons.clear),
-                        onPressed: busy ? null : phone.clear,
-                      ),
-              ),
-              keyboardType: TextInputType.phone,
-              maxLength: 30,
+          TextFormField(
+            controller: phone,
+            enabled: !busy,
+            decoration: InputDecoration(
+              labelText: 'Phone (optional)',
+              suffixIcon: phone.text.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: 'Clear phone',
+                      icon: const Icon(Icons.clear),
+                      onPressed: busy
+                          ? null
+                          : () {
+                              phone.clear();
+                              setState(() {});
+                            },
+                    ),
             ),
+            keyboardType: TextInputType.phone,
+            maxLength: 50,
+            validator: validatePhone,
+            onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: 12),
           TextFormField(
             controller: postal,
-            decoration: const InputDecoration(labelText: 'ZIP code'),
+            enabled: !busy,
+            decoration: const InputDecoration(
+              labelText: 'ZIP code',
+              helperText: 'Optional · needed to request service',
+            ),
             keyboardType: TextInputType.number,
-            maxLength: 5,
-            validator: (v) => RegExp(r'^\d{5}$').hasMatch(v?.trim() ?? '')
-                ? null
-                : 'Enter a five-digit ZIP code',
+            maxLength: 10,
+            validator: (value) {
+              final zip = value?.trim() ?? '';
+              return zip.isEmpty || RegExp(r'^\d{5}(-\d{4})?$').hasMatch(zip)
+                  ? null
+                  : 'Enter a five-digit ZIP code';
+            },
+            onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
+            key: ValueKey('contact-$preference'),
             initialValue: preference,
+            isExpanded: true,
             decoration: const InputDecoration(labelText: 'Preferred contact'),
             items: const [
               DropdownMenuItem(value: 'email', child: Text('Email')),
               DropdownMenuItem(value: 'phone', child: Text('Phone')),
             ],
-            onChanged: (value) => preference = value ?? 'email',
+            onChanged: busy
+                ? null
+                : (value) {
+                    if (!active || busy) return;
+                    setState(() => preference = value ?? 'email');
+                  },
           ),
           const SizedBox(height: 20),
+          if (changed || conflict)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 12),
+              child: Text(
+                'Your saved profile changed. Reload the saved details before saving again. Your unfinished edits are still shown.',
+              ),
+            ),
           if (error != null)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
@@ -346,7 +517,24 @@ class _ProfileFormState extends State<ProfileForm> {
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ),
-          BusyButton(busy: busy, label: 'Save profile', onPressed: save),
+          BusyButton(
+            busy: busy && !confirming,
+            label: 'Save profile',
+            onPressed: busy || changed || conflict ? null : save,
+          ),
+          if (dirty || changed || conflict)
+            TextButton(
+              onPressed: busy ? null : reload,
+              child: Text(
+                conflict ? 'Reload saved profile' : 'Discard profile changes',
+              ),
+            ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: busy ? null : clear,
+            icon: const Icon(Icons.person_remove_outlined),
+            label: const Text('Clear profile details'),
+          ),
         ],
       ),
     );

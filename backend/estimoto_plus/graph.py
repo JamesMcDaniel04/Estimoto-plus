@@ -115,6 +115,13 @@ def knowledge(c: Customer = Depends(current_customer), db: Session = Depends(db_
             "policy_version": POLICY_VERSION}
 
 
+@router.get("/v1/knowledge/preferences")
+def get_preference(c: Customer = Depends(current_customer), db: Session = Depends(db_session)):
+    preference = db.get(KnowledgePreference, c.id)
+    return {"share_aggregate_insights": bool(preference and preference.share_aggregate_insights),
+            "policy_version": POLICY_VERSION}
+
+
 @router.put("/v1/knowledge/preferences")
 def save_preference(body: PreferenceInput, c: Customer = Depends(current_customer), db: Session = Depends(db_session)):
     lock_customer(db, c.id)

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
@@ -58,6 +59,9 @@ class PlusController extends ChangeNotifier {
   final List<ChatEntry> messages = [];
   bool _disposed = false;
   bool _sessionActive = true;
+  final _settingsWork = <String>{};
+  Completer<void>? _queuedRefresh;
+  bool _queuedRefreshQuiet = true;
   Vehicle? get selectedVehicle =>
       snapshot?.vehicle(selectedVehicleId ?? '') ??
       snapshot?.vehicles.firstOrNull;
@@ -87,6 +91,12 @@ class PlusController extends ChangeNotifier {
   }
 
   Future<void> refresh({bool quiet = false}) async {
+    if (_disposed || !_sessionActive) return;
+    if (_settingsWork.isNotEmpty) {
+      _queuedRefresh ??= Completer<void>();
+      _queuedRefreshQuiet = _queuedRefreshQuiet && quiet;
+      return _queuedRefresh!.future;
+    }
     final generation = ++_refreshGeneration;
     loading = !quiet;
     error = null;
@@ -101,8 +111,23 @@ class PlusController extends ChangeNotifier {
         );
         if (saved != null) estimates[estimate.id] = saved;
       }
-      if (_disposed || generation != _refreshGeneration) return;
-      snapshot = next;
+      if (_disposed || !_sessionActive || generation != _refreshGeneration) {
+        return;
+      }
+      final initial = snapshot == null;
+      final previous = snapshot;
+      // A delayed bootstrap may lag a settings acknowledgement. Other data
+      // still needs refreshing, but saved sections must never move backwards.
+      snapshot = previous?.profile.id == next.profile.id
+          ? next.copyWith(
+              profile: previous!.profile.revision > next.profile.revision
+                  ? previous.profile
+                  : null,
+              settings: previous.settings.revision > next.settings.revision
+                  ? previous.settings
+                  : null,
+            )
+          : next;
       // Knowledge is fetched separately from bootstrap. A successful refresh
       // must also invalidate receipt details and costs changed on the server.
       historyRevision++;
@@ -113,6 +138,7 @@ class PlusController extends ChangeNotifier {
       if (!snapshot!.vehicles.any((v) => v.id == selectedVehicleId)) {
         selectedVehicleId = snapshot!.vehicles.firstOrNull?.id;
       }
+      if (initial) _applyAppDefaults();
     } catch (e) {
       if (!_disposed && generation == _refreshGeneration) {
         error = readableError(e);
@@ -129,8 +155,206 @@ class PlusController extends ChangeNotifier {
   void invalidateSession() {
     _sessionActive = false;
     ++_refreshGeneration;
+    _completeQueuedRefresh();
+    snapshot = null;
+    messages.clear();
+    pendingRequest = null;
+    _pendingEstimates.clear();
+    selectedVehicleId = null;
+    loading = false;
+    error = null;
     _notify();
   }
+
+  void _completeQueuedRefresh() {
+    _queuedRefresh?.complete();
+    _queuedRefresh = null;
+    _queuedRefreshQuiet = true;
+  }
+
+  void _flushQueuedRefresh() {
+    if (_settingsWork.isNotEmpty || _queuedRefresh == null) return;
+    final waiting = _queuedRefresh!;
+    final quiet = _queuedRefreshQuiet;
+    _queuedRefresh = null;
+    _queuedRefreshQuiet = true;
+    // The setting is already acknowledged; unrelated refresh failures must not
+    // turn its successful save into a failure or delay closing the form.
+    unawaited(refresh(quiet: quiet).whenComplete(waiting.complete));
+  }
+
+  void _applyAppDefaults() {
+    final data = snapshot!;
+    selectedVehicleId =
+        data.vehicle(data.settings.defaultVehicleId ?? '')?.id ??
+        data.vehicles.firstOrNull?.id;
+    discipline = data.settings.defaultEstimateDiscipline;
+    tab = data.settings.homeTabIndex;
+  }
+
+  void _acceptSettings(String section, Json value, {int? afterRevision}) {
+    final data = snapshot!;
+    final revision = value['revision'];
+    final previous = section == 'profile'
+        ? data.profile.revision
+        : data.settings.revision;
+    var valid =
+        revision is int &&
+        revision >= previous &&
+        (afterRevision == null || revision > afterRevision);
+    if (section == 'profile') {
+      valid =
+          valid &&
+          value['id'] == data.profile.id &&
+          value['email'] == data.profile.email &&
+          [
+            'name',
+            'phone',
+            'postal_code',
+            'contact_preference',
+          ].every((key) => value[key] is String) &&
+          const {'email', 'phone'}.contains(value['contact_preference']);
+    } else {
+      valid =
+          valid &&
+          value['customized'] is bool &&
+          (value['default_vehicle_id'] == null ||
+              value['default_vehicle_id'] is String) &&
+          const {
+            'pdr',
+            'collision',
+          }.contains(value['default_estimate_discipline']) &&
+          const {
+            'garage',
+            'estimates',
+            'repairs',
+            'find_help',
+          }.contains(value['home_tab']);
+    }
+    if (!valid) {
+      throw const PlusApiException(
+        'The saved details could not be verified. Reload your settings to check them.',
+        502,
+      );
+    }
+    snapshot = section == 'profile'
+        ? data.copyWith(
+            profile: CustomerProfile.fromJson(Map.unmodifiable(value)),
+          )
+        : data.copyWith(settings: AppSettings.fromJson(value));
+  }
+
+  Future<void> _reloadSettingsSection(
+    String section,
+    bool Function() current,
+  ) async {
+    final result = section == 'profile'
+        ? await repository.getProfileSettings(isCurrent: current)
+        : await repository.getAppSettings(isCurrent: current);
+    if (!current()) {
+      throw const PlusApiException('Please sign in to continue.', 401);
+    }
+    _acceptSettings(section, result);
+  }
+
+  Future<void> _changeSettings(
+    String section,
+    int? expectedRevision,
+    Future<Json> Function(bool Function())? send,
+  ) async {
+    final customer = snapshot?.profile.id;
+    bool current() => customer != null && isCurrentCustomer(customer);
+    if (!current()) {
+      throw const PlusApiException('Please sign in to continue.', 401);
+    }
+    final revision = section == 'profile'
+        ? snapshot!.profile.revision
+        : snapshot!.settings.revision;
+    if (expectedRevision != null && expectedRevision != revision) {
+      throw PlusApiException(
+        'These details changed. Reload your saved settings before trying again.',
+        409,
+        section == 'profile' ? 'profile_conflict' : 'settings_conflict',
+      );
+    }
+    if (!_settingsWork.add(section)) {
+      throw const PlusApiException('These settings are already being saved.');
+    }
+    // Discard refreshes begun before this write; the mutation response is the
+    // authoritative value even when a later bootstrap cannot reach the server.
+    ++_refreshGeneration;
+    loading = false;
+    _notify();
+    try {
+      if (send == null) {
+        await _reloadSettingsSection(section, current);
+      } else {
+        final result = await send(current);
+        if (!current()) {
+          throw const PlusApiException('Please sign in to continue.', 401);
+        }
+        _acceptSettings(section, result, afterRevision: expectedRevision);
+        if (section == 'settings') _applyAppDefaults();
+      }
+    } on PlusApiException catch (failure) {
+      if (current() &&
+          failure.statusCode == 409 &&
+          const {
+            'profile_conflict',
+            'settings_conflict',
+          }.contains(failure.code)) {
+        try {
+          await _reloadSettingsSection(section, current);
+        } catch (_) {
+          // Preserve the original conflict and the draft when reload is offline.
+        }
+      }
+      rethrow;
+    } finally {
+      ++_refreshGeneration;
+      _settingsWork.remove(section);
+      if (current()) _notify();
+      _flushQueuedRefresh();
+    }
+  }
+
+  Future<void> saveProfileSettings(Json body, {required int expectedRevision}) {
+    final frozen = freezeJson({...body, 'expected_revision': expectedRevision});
+    return _changeSettings(
+      'profile',
+      expectedRevision,
+      (current) => repository.saveProfileSettings(frozen, isCurrent: current),
+    );
+  }
+
+  Future<void> clearProfileSettings({required int expectedRevision}) =>
+      _changeSettings(
+        'profile',
+        expectedRevision,
+        (current) => repository.clearProfileSettings(
+          expectedRevision,
+          isCurrent: current,
+        ),
+      );
+  Future<void> saveAppSettings(Json body, {required int expectedRevision}) {
+    final frozen = freezeJson({...body, 'expected_revision': expectedRevision});
+    return _changeSettings(
+      'settings',
+      expectedRevision,
+      (current) => repository.saveAppSettings(frozen, isCurrent: current),
+    );
+  }
+
+  Future<void> resetAppSettings({required int expectedRevision}) =>
+      _changeSettings(
+        'settings',
+        expectedRevision,
+        (current) =>
+            repository.resetAppSettings(expectedRevision, isCurrent: current),
+      );
+  Future<void> reloadProfileSettings() =>
+      _changeSettings('profile', null, null);
+  Future<void> reloadAppSettings() => _changeSettings('settings', null, null);
 
   void reportSessionError() {
     error =
@@ -353,6 +577,7 @@ class PlusController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _completeQueuedRefresh();
     repository.close();
     super.dispose();
   }

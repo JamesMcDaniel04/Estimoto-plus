@@ -299,7 +299,13 @@ def test_receiver_incompatible_garage_fields_rejected_before_queue(plus):
     assert client.put(f"/v1/vehicles/{vehicle}", headers=auth(), json={"year": 2020, "vin": "INVALID"}).status_code == 200
     assert submit(client, estimate, provider).status_code == 422
     assert client.put(f"/v1/vehicles/{vehicle}", headers=auth(), json={"vin": ""}).status_code == 200
-    assert client.put("/v1/profile", headers=auth(), json={"name": "Alice", "phone": "1" * 41, "postal_code": "80202"}).status_code == 200
+    assert client.put("/v1/profile", headers=auth(), json={"name": "Alice", "phone": "1" * 41, "postal_code": "80202"}).status_code == 422
+    # A stricter editor cannot repair malformed details saved by an older build.
+    # Submission must still independently reject those historical rows.
+    from estimoto_plus.models import Customer
+    with app.state.session_factory() as db:
+        db.get(Customer, "alice").phone = "1" * 41
+        db.commit()
     assert submit(client, estimate, provider).status_code == 422
     from estimoto_plus.models import EstimateOutbox
     with app.state.session_factory() as db:

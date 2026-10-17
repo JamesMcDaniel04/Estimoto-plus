@@ -639,6 +639,7 @@ void main() {
       final (c, r) = await _setup(repo);
       final store = MemoryReceiptPendingStore();
       final selected = Completer<XFile?>();
+      final owner = c.snapshot!.profile.id;
       final native = MemoryEstimateCaptureStore();
       final picker = _Picker()..callback = () => selected.future;
       final service = EstimateCaptureService(
@@ -662,7 +663,8 @@ void main() {
       selected.complete(XFile('/private/receipt.jpg'));
       await t.pumpAndSettle();
       expect(repo.uploads, isEmpty);
-      expect(await store.read(c.snapshot!.profile.id), isNull);
+      expect(c.snapshot, isNull);
+      expect(await store.read(owner), isNull);
       expect(find.text('Sign in again to view your history.'), findsOneWidget);
       expect(native.value!.targetKind, 'receipt');
       expect(native.value!.estimateId, r['id']);
