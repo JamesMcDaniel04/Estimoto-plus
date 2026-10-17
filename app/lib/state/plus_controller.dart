@@ -70,7 +70,9 @@ class PlusController extends ChangeNotifier {
     if (!_disposed) notifyListeners();
   }
 
+  int _conversationGeneration = 0;
   void clearConversation() {
+    _conversationGeneration++;
     messages.clear();
     _notify();
   }
@@ -154,6 +156,7 @@ class PlusController extends ChangeNotifier {
   /// Revoke callback authority immediately, before Flutter disposes the old tree.
   void invalidateSession() {
     _sessionActive = false;
+    repository.invalidateSession();
     ++_refreshGeneration;
     _completeQueuedRefresh();
     snapshot = null;
@@ -433,7 +436,14 @@ class PlusController extends ChangeNotifier {
   }
 
   Future<Json> saveVehicle(Json body, {String? id}) async {
-    final result = await repository.saveVehicle(body, id: id);
+    final owner = snapshot?.profile.id;
+    if (owner == null || !isCurrentCustomer(owner)) {
+      throw const PlusApiException('Please sign in again to continue.', 401);
+    }
+    final result = await repository.saveVehicle(freezeJson(body), id: id);
+    if (!isCurrentCustomer(owner)) {
+      throw const PlusApiException('Please sign in again to continue.', 401);
+    }
     selectedVehicleId = result['id'] as String;
     await refresh();
     return result;
@@ -514,6 +524,7 @@ class PlusController extends ChangeNotifier {
         !isCurrentCustomer(customer)) {
       return;
     }
+    final conversation = _conversationGeneration;
     final vehicle = selectedVehicle?.id, postal = snapshot!.profile.postalCode;
     final mobile = RegExp(
       r'mobile|come to me|come to my|at my (home|work|house)',
@@ -529,7 +540,10 @@ class PlusController extends ChangeNotifier {
         'postal_code': postal,
         'mobile_only': mobile,
       });
-      if (!isCurrentCustomer(customer)) return;
+      if (!isCurrentCustomer(customer) ||
+          conversation != _conversationGeneration) {
+        return;
+      }
       if (selectedVehicle?.id != vehicle ||
           snapshot!.profile.postalCode != postal) {
         messages.add(
@@ -553,7 +567,10 @@ class PlusController extends ChangeNotifier {
         ),
       );
     } catch (e) {
-      if (!isCurrentCustomer(customer)) return;
+      if (!isCurrentCustomer(customer) ||
+          conversation != _conversationGeneration) {
+        return;
+      }
       messages.add(
         ChatEntry.assistant(
           AssistantAnswer.fromJson({

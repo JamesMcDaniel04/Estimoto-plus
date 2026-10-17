@@ -3,6 +3,7 @@ import '../domain/models.dart';
 import '../data/repository.dart';
 import '../state/plus_controller.dart';
 import '../widgets/common.dart';
+import '../widgets/workspace_widgets.dart';
 
 Future<void> editVehicle(
   BuildContext context,
@@ -37,11 +38,12 @@ class _VehicleForm extends StatefulWidget {
   State<_VehicleForm> createState() => _VehicleFormState();
 }
 
-class _VehicleFormState extends State<_VehicleForm> {
+class _VehicleFormState extends WorkspaceState<_VehicleForm> {
+  @override
+  PlusController get controller => widget.controller;
+  bool confirming = false;
   final _form = GlobalKey<FormState>();
   late final Map<String, TextEditingController> fields;
-  bool busy = false;
-  String? error;
   @override
   void initState() {
     super.initState();
@@ -99,7 +101,7 @@ class _VehicleFormState extends State<_VehicleForm> {
   }
 
   Future<void> save() async {
-    if (!_form.currentState!.validate()) return;
+    if (!active || busy || !_form.currentState!.validate()) return;
     setState(() {
       busy = true;
       error = null;
@@ -112,99 +114,120 @@ class _VehicleFormState extends State<_VehicleForm> {
       body['mileage'] = int.tryParse(fields['mileage']!.text.trim()) ?? 0;
       body['vin'] = fields['vin']!.text.trim().toUpperCase();
       await widget.controller.saveVehicle(body, id: widget.vehicle?.id);
-      if (mounted) Navigator.pop(context);
+      if (mounted && active) Navigator.pop(context);
     } catch (e) {
-      if (mounted) setState(() => error = PlusController.readableError(e));
+      if (active) setState(() => error = PlusController.readableError(e));
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (active) setState(() => busy = false);
     }
   }
 
-  @override
-  Widget build(BuildContext context) => FormSheet(
-    title: widget.vehicle == null ? 'Add your vehicle' : 'Edit your vehicle',
-    child: Form(
-      key: _form,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Save it once. Use it for estimates, repair requests and reminders.',
+  Future<void> remove() => perform(() async {
+    setState(() => confirming = true);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove this vehicle?'),
+        content: const Text(
+          'Remove it from your garage. Vehicles with saved estimates, reminders or history cannot be removed.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Keep vehicle'),
           ),
-          const SizedBox(height: 18),
-          for (final entry in {
-            'nickname': 'Nickname (optional)',
-            'year': 'Year',
-            'make': 'Make',
-            'model': 'Model',
-            'vin': 'VIN (optional)',
-            'mileage': 'Current mileage',
-            'insurer': 'Insurance company (optional)',
-            'policy_number': 'Policy number (optional)',
-          }.entries)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 14),
-              child: TextFormField(
-                controller: fields[entry.key],
-                enabled: !busy,
-                decoration: InputDecoration(labelText: entry.value),
-                keyboardType: ['year', 'mileage'].contains(entry.key)
-                    ? TextInputType.number
-                    : TextInputType.text,
-                textCapitalization: entry.key == 'vin'
-                    ? TextCapitalization.characters
-                    : TextCapitalization.words,
-                maxLength: entry.key == 'vin'
-                    ? 17
-                    : (entry.key == 'year' ? 4 : 100),
-                validator: (v) => validate(entry.key, v),
-                buildCounter:
-                    (
-                      _, {
-                      required currentLength,
-                      required isFocused,
-                      required maxLength,
-                    }) => null,
-              ),
-            ),
-          if (error != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Text(
-                error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-            ),
-          BusyButton(busy: busy, label: 'Save vehicle', onPressed: save),
-          if (widget.vehicle != null)
-            Center(
-              child: TextButton(
-                onPressed: busy
-                    ? null
-                    : () async {
-                        setState(() => busy = true);
-                        try {
-                          await widget.controller.repository.deleteVehicle(
-                            widget.vehicle!.id,
-                          );
-                          await widget.controller.refresh();
-                          if (context.mounted) Navigator.pop(context);
-                        } catch (e) {
-                          if (mounted) {
-                            setState(() {
-                              busy = false;
-                              error = PlusController.readableError(e);
-                            });
-                          }
-                        }
-                      },
-                child: const Text('Remove from garage'),
-              ),
-            ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Remove vehicle'),
+          ),
         ],
       ),
-    ),
-  );
+    );
+    if (active) setState(() => confirming = false);
+    if (confirmed != true || !active) return;
+    await controller.repository.deleteVehicle(widget.vehicle!.id);
+    if (!active) return;
+    await controller.refresh();
+    if (mounted && active) Navigator.pop(context);
+  });
+
+  @override
+  Widget build(BuildContext context) => !current
+      ? unavailable
+      : FormSheet(
+          title: widget.vehicle == null
+              ? 'Add your vehicle'
+              : 'Edit your vehicle',
+          child: Form(
+            key: _form,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Save it once. Use it for estimates, repair requests and reminders.',
+                ),
+                const SizedBox(height: 18),
+                for (final entry in {
+                  'nickname': 'Nickname (optional)',
+                  'year': 'Year',
+                  'make': 'Make',
+                  'model': 'Model',
+                  'vin': 'VIN (optional)',
+                  'mileage': 'Current mileage',
+                  'insurer': 'Insurance company (optional)',
+                  'policy_number': 'Policy number (optional)',
+                }.entries)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: TextFormField(
+                      controller: fields[entry.key],
+                      enabled: !busy,
+                      decoration: InputDecoration(labelText: entry.value),
+                      keyboardType: ['year', 'mileage'].contains(entry.key)
+                          ? TextInputType.number
+                          : TextInputType.text,
+                      textCapitalization: entry.key == 'vin'
+                          ? TextCapitalization.characters
+                          : TextCapitalization.words,
+                      maxLength: entry.key == 'vin'
+                          ? 17
+                          : (entry.key == 'year' ? 4 : 100),
+                      validator: (v) => validate(entry.key, v),
+                      buildCounter:
+                          (
+                            _, {
+                            required currentLength,
+                            required isFocused,
+                            required maxLength,
+                          }) => null,
+                    ),
+                  ),
+                if (error != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ),
+                BusyButton(
+                  busy: busy && !confirming,
+                  label: 'Save vehicle',
+                  onPressed: save,
+                ),
+                if (widget.vehicle != null)
+                  Center(
+                    child: TextButton(
+                      onPressed: busy ? null : remove,
+                      child: const Text('Remove from garage'),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
 }
 
 /// Name, phone, ZIP and contact preference for the signed-in customer.
@@ -552,12 +575,13 @@ class _ReminderForm extends StatefulWidget {
   State<_ReminderForm> createState() => _ReminderFormState();
 }
 
-class _ReminderFormState extends State<_ReminderForm> {
+class _ReminderFormState extends WorkspaceState<_ReminderForm> {
+  @override
+  PlusController get controller => widget.controller;
+  bool confirming = false;
   final title = TextEditingController();
   final mileage = TextEditingController();
   DateTime? date;
-  String? error;
-  bool busy = false;
   bool get editing => widget.reminder != null;
   @override
   void initState() {
@@ -570,7 +594,8 @@ class _ReminderFormState extends State<_ReminderForm> {
     }
   }
 
-  Future<void> remove() async {
+  Future<void> remove() => perform(() async {
+    setState(() => confirming = true);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -588,21 +613,13 @@ class _ReminderFormState extends State<_ReminderForm> {
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
-    setState(() => busy = true);
-    try {
-      await widget.controller.repository.deleteReminder(widget.reminder!.id);
-      await widget.controller.refresh();
-      if (mounted) Navigator.pop(context);
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          error = PlusController.readableError(e);
-          busy = false;
-        });
-      }
-    }
-  }
+    if (active) setState(() => confirming = false);
+    if (confirmed != true || !active) return;
+    await controller.repository.deleteReminder(widget.reminder!.id);
+    if (!active) return;
+    await controller.refresh();
+    if (mounted && active) Navigator.pop(context);
+  });
 
   @override
   void dispose() {
@@ -612,7 +629,7 @@ class _ReminderFormState extends State<_ReminderForm> {
   }
 
   Future<void> save() async {
-    if (busy) return;
+    if (!active || busy) return;
     final miles = int.tryParse(mileage.text.trim());
     if (title.text.trim().isEmpty ||
         (date == null && miles == null) ||
@@ -645,10 +662,11 @@ class _ReminderFormState extends State<_ReminderForm> {
       } else {
         await widget.controller.repository.addReminder(body);
       }
+      if (!active) return;
       await widget.controller.refresh();
-      if (mounted) Navigator.pop(context);
+      if (mounted && active) Navigator.pop(context);
     } catch (e) {
-      if (mounted) {
+      if (active) {
         setState(() {
           error = PlusController.readableError(e);
           busy = false;
@@ -658,90 +676,107 @@ class _ReminderFormState extends State<_ReminderForm> {
   }
 
   @override
-  Widget build(BuildContext context) => FormSheet(
-    title: editing ? 'Edit reminder' : 'Add a reminder',
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (!editing) ...[
-          VehiclePicker(controller: widget.controller),
-          const SizedBox(height: 16),
-        ],
-        TextField(
-          controller: title,
-          enabled: !busy,
-          maxLength: 120,
-          decoration: const InputDecoration(labelText: 'What needs attention?'),
-        ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            OutlinedButton.icon(
-              onPressed: busy
-                  ? null
-                  : () async {
-                      final initial =
-                          date ?? DateTime.now().add(const Duration(days: 30));
-                      final first = DateTime(1950);
-                      final last = DateTime.now().add(
-                        const Duration(days: 3650),
-                      );
-                      final value = await showDatePicker(
-                        context: context,
-                        initialDate: initial,
-                        firstDate: initial.isBefore(first) ? initial : first,
-                        lastDate: initial.isAfter(last) ? initial : last,
-                      );
-                      if (value != null && mounted) {
-                        setState(() => date = value);
-                      }
-                    },
-              icon: const Icon(Icons.calendar_today_outlined),
-              label: Text(
-                date == null
-                    ? 'Choose a date'
-                    : dateText(date!.toIso8601String()),
+  Widget build(BuildContext context) => !current
+      ? unavailable
+      : FormSheet(
+          title: editing ? 'Edit reminder' : 'Add a reminder',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (!editing) ...[
+                VehiclePicker(controller: widget.controller),
+                const SizedBox(height: 16),
+              ],
+              TextField(
+                controller: title,
+                enabled: !busy,
+                maxLength: 120,
+                decoration: const InputDecoration(
+                  labelText: 'What needs attention?',
+                ),
               ),
-            ),
-            if (date != null)
-              IconButton(
-                tooltip: 'Clear reminder date',
-                onPressed: busy ? null : () => setState(() => date = null),
-                icon: const Icon(Icons.close),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: busy
+                        ? null
+                        : () async {
+                            final initial =
+                                date ??
+                                DateTime.now().add(const Duration(days: 30));
+                            final first = DateTime(1950);
+                            final last = DateTime.now().add(
+                              const Duration(days: 3650),
+                            );
+                            final value = await showDatePicker(
+                              context: context,
+                              initialDate: initial,
+                              firstDate: initial.isBefore(first)
+                                  ? initial
+                                  : first,
+                              lastDate: initial.isAfter(last) ? initial : last,
+                            );
+                            if (value != null && active) {
+                              setState(() => date = value);
+                            }
+                          },
+                    icon: const Icon(Icons.calendar_today_outlined),
+                    label: Text(
+                      date == null
+                          ? 'Choose a date'
+                          : dateText(date!.toIso8601String()),
+                    ),
+                  ),
+                  if (date != null)
+                    IconButton(
+                      tooltip: 'Clear reminder date',
+                      onPressed: busy
+                          ? null
+                          : () => setState(() => date = null),
+                      icon: const Icon(Icons.close),
+                    ),
+                ],
               ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        TextField(
-          controller: mileage,
-          enabled: !busy,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(labelText: 'Or due at mileage'),
-        ),
-        const SizedBox(height: 12),
-        const Text(
-          'Use the service interval in your owner’s manual or your shop’s recommendation.',
-        ),
-        const SizedBox(height: 18),
-        if (error != null)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Text(
-              error!,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: mileage,
+                enabled: !busy,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Or due at mileage',
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Use the service interval in your owner’s manual or your shop’s recommendation.',
+              ),
+              const SizedBox(height: 18),
+              if (error != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Text(
+                    error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
+              BusyButton(
+                busy: busy && !confirming,
+                label: 'Save reminder',
+                onPressed: save,
+              ),
+              if (editing)
+                Center(
+                  child: TextButton(
+                    onPressed: busy ? null : remove,
+                    child: const Text('Delete reminder'),
+                  ),
+                ),
+            ],
           ),
-        BusyButton(busy: busy, label: 'Save reminder', onPressed: save),
-        if (editing)
-          Center(
-            child: TextButton(
-              onPressed: busy ? null : remove,
-              child: const Text('Delete reminder'),
-            ),
-          ),
-      ],
-    ),
-  );
+        );
 }

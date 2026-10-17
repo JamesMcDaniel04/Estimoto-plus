@@ -47,6 +47,73 @@ class ApiPlusRepository extends PlusRepository {
   final Uri baseUri;
   final Future<String?> Function() token;
   final http.Client _client;
+  bool _closed = false;
+  void _requireOpen() {
+    if (_closed) {
+      throw const PlusApiException(
+        'Your session has ended. Please sign in again.',
+        401,
+      );
+    }
+  }
+
+  Future<http.Response> _readResponse(
+    http.BaseRequest request, {
+    required Duration timeout,
+    int maxBytes = 16 * 1024 * 1024,
+    void Function()? check,
+    Duration? idleTimeout,
+    int limitStatus = 502,
+    String limitMessage = 'The response is too large. Please try again.',
+  }) async {
+    StreamIterator<List<int>>? reader;
+    var expired = false;
+    Future<http.Response> read() async {
+      _requireOpen();
+      check?.call();
+      final response = await _client.send(request);
+      try {
+        _requireOpen();
+        check?.call();
+        if (expired) throw TimeoutException('Response deadline elapsed');
+        if ((response.contentLength ?? 0) > maxBytes) {
+          throw PlusApiException(limitMessage, limitStatus);
+        }
+      } catch (_) {
+        await response.stream.listen(null).cancel();
+        rethrow;
+      }
+      final chunks = StreamIterator(response.stream);
+      reader = chunks;
+      final bytes = BytesBuilder(copy: false);
+      while (await chunks.moveNext().timeout(idleTimeout ?? timeout)) {
+        _requireOpen();
+        check?.call();
+        if (expired) throw TimeoutException('Response deadline elapsed');
+        if (bytes.length + chunks.current.length > maxBytes) {
+          throw PlusApiException(limitMessage, limitStatus);
+        }
+        bytes.add(chunks.current);
+      }
+      // EOF already releases the subscription. Only cancel incomplete bodies.
+      reader = null;
+      _requireOpen();
+      return http.Response.bytes(
+        bytes.takeBytes(),
+        response.statusCode,
+        headers: response.headers,
+        request: request,
+      );
+    }
+
+    try {
+      return await read().timeout(timeout);
+    } finally {
+      expired = true;
+      await reader?.cancel();
+    }
+  }
+
   @override
   bool get isDemo => false;
   @override
@@ -67,7 +134,17 @@ class ApiPlusRepository extends PlusRepository {
   }) => _ApiReceiptRecord(this, recordId, isCurrent);
 
   Future<Map<String, String>> _headers() async {
-    final accessToken = await token();
+    _requireOpen();
+    final String? accessToken;
+    try {
+      accessToken = await token().timeout(const Duration(seconds: 20));
+    } on TimeoutException {
+      throw const PlusApiException(
+        'Sign-in refresh timed out. Please try again.',
+        408,
+      );
+    }
+    _requireOpen();
     if (accessToken == null || accessToken.isEmpty) {
       throw const PlusApiException('Please sign in to continue.', 401);
     }
@@ -87,6 +164,7 @@ class ApiPlusRepository extends PlusRepository {
     Duration timeout = const Duration(seconds: 20),
   }) async {
     void check() {
+      _requireOpen();
       if (isCurrent != null && !isCurrent()) {
         throw const PlusApiException(
           'Your vehicle or account changed. Reopen this page to continue.',
@@ -96,21 +174,21 @@ class ApiPlusRepository extends PlusRepository {
     }
 
     check();
+    _requireOpen();
+    final encodedBody = body == null ? null : jsonEncode(body);
     final request = http.Request(method, baseUri.resolve(path));
     request.headers.addAll(await _headers());
     check();
     if (body != null) {
       request.headers['Content-Type'] = 'application/json';
-      request.body = jsonEncode(body);
+      request.body = encodedBody!;
     }
     if (idempotencyKey != null) {
       request.headers['Idempotency-Key'] = idempotencyKey;
     }
     request.followRedirects = false;
     try {
-      final response = await http.Response.fromStream(
-        await _client.send(request).timeout(timeout),
-      ).timeout(timeout);
+      final response = await _readResponse(request, timeout: timeout);
       check();
       return _decode(response, collection: collection);
     } on TimeoutException {
@@ -125,6 +203,7 @@ class ApiPlusRepository extends PlusRepository {
   }
 
   Json _decode(http.Response response, {bool collection = false}) {
+    _requireOpen();
     if (response.statusCode == 401) {
       throw const PlusApiException(
         'Your session has ended. Please sign in again.',
@@ -344,40 +423,22 @@ class ApiPlusRepository extends PlusRepository {
     request.headers['Accept'] = 'image/webp';
     request.followRedirects = false;
     try {
-      final response = await _client
-          .send(request)
-          .timeout(const Duration(seconds: 25));
-      if (response.statusCode == 204) {
-        await response.stream.listen(null).cancel();
-        return null;
-      }
-      if (response.statusCode != 200) {
-        final body = await http.ByteStream(
-          response.stream.take(1),
-        ).toBytes().timeout(const Duration(seconds: 5));
-        _decode(http.Response.bytes(body, response.statusCode));
-      }
+      final response = await _readResponse(
+        request,
+        timeout: const Duration(seconds: 25),
+        maxBytes: 10 * 1024 * 1024,
+      );
+      if (response.statusCode == 204) return null;
+      if (response.statusCode != 200) _decode(response);
       final source = response.headers['x-vehicle-image-source'];
       if (response.headers['content-type']?.split(';').first.trim() !=
               'image/webp' ||
           !const ['upload', 'carsxe'].contains(source)) {
-        await response.stream.listen(null).cancel();
         throw const PlusApiException(
           'This vehicle photo could not be displayed.',
         );
       }
-      final bytes = BytesBuilder(copy: false);
-      await for (final chunk in response.stream.timeout(
-        const Duration(seconds: 20),
-      )) {
-        if (bytes.length + chunk.length > 10 * 1024 * 1024) {
-          throw const PlusApiException(
-            'This vehicle photo is too large to display.',
-          );
-        }
-        bytes.add(chunk);
-      }
-      return VehiclePhoto(bytes.takeBytes(), source: source!);
+      return VehiclePhoto(response.bodyBytes, source: source!);
     } on TimeoutException {
       throw const PlusApiException(
         'Vehicle photo loading timed out. Try again.',
@@ -407,6 +468,7 @@ class ApiPlusRepository extends PlusRepository {
     if (bytes.isEmpty || bytes.length > 10 * 1024 * 1024) {
       throw const PlusApiException('Choose a photo smaller than 10 MB.');
     }
+    bytes = Uint8List.fromList(bytes);
     final request = http.MultipartRequest(
       'POST',
       baseUri.resolve('/v1/vehicles/${Uri.encodeComponent(id)}/image'),
@@ -423,9 +485,7 @@ class ApiPlusRepository extends PlusRepository {
     );
     try {
       return _decode(
-        await http.Response.fromStream(
-          await _client.send(request).timeout(const Duration(seconds: 45)),
-        ).timeout(const Duration(seconds: 45)),
+        await _readResponse(request, timeout: const Duration(seconds: 45)),
       );
     } on TimeoutException {
       throw const PlusApiException(
@@ -466,26 +526,16 @@ class ApiPlusRepository extends PlusRepository {
     request.headers.addAll(await _headers());
     request.followRedirects = false;
     try {
-      final response = await _client
-          .send(request)
-          .timeout(const Duration(seconds: 20));
+      final response = await _readResponse(
+        request,
+        timeout: const Duration(seconds: 20),
+        maxBytes: 10 * 1024 * 1024,
+      );
       if (response.statusCode != 200) {
-        final body = await http.ByteStream(
-          response.stream.take(1),
-        ).toBytes().timeout(const Duration(seconds: 5));
-        _decode(http.Response.bytes(body, response.statusCode));
+        _decode(response);
         throw const PlusApiException('This photo could not be loaded.');
       }
-      final result = BytesBuilder(copy: false);
-      await for (final bytes in response.stream.timeout(
-        const Duration(seconds: 20),
-      )) {
-        if (result.length + bytes.length > 10 * 1024 * 1024) {
-          throw const PlusApiException('This photo is too large to display.');
-        }
-        result.add(bytes);
-      }
-      return result.takeBytes();
+      return response.bodyBytes;
     } on TimeoutException {
       throw const PlusApiException('Photo loading timed out. Try again.');
     } on http.ClientException {
@@ -593,6 +643,7 @@ class ApiPlusRepository extends PlusRepository {
     if (bytes.length > 10 * 1024 * 1024) {
       throw const PlusApiException('Choose a photo smaller than 10 MB.');
     }
+    bytes = Uint8List.fromList(bytes);
     final request = http.MultipartRequest(
       'POST',
       baseUri.resolve(
@@ -612,9 +663,7 @@ class ApiPlusRepository extends PlusRepository {
     );
     try {
       return _decode(
-        await http.Response.fromStream(
-          await _client.send(request).timeout(const Duration(seconds: 45)),
-        ).timeout(const Duration(seconds: 45)),
+        await _readResponse(request, timeout: const Duration(seconds: 45)),
       );
     } on TimeoutException {
       throw const PlusApiException(
@@ -698,7 +747,11 @@ class ApiPlusRepository extends PlusRepository {
       _send('PUT', '/v1/knowledge/preferences', body: body);
 
   @override
-  void close() => _client.close();
+  void close() {
+    if (_closed) return;
+    _closed = true;
+    _client.close();
+  }
 }
 
 class _ApiGuidedCapture extends GuidedCaptureApi {
@@ -709,6 +762,7 @@ class _ApiGuidedCapture extends GuidedCaptureApi {
   @override
   Uri get pageUri => repository.baseUri.resolve('/capture/');
   void check() {
+    repository._requireOpen();
     if (!isCurrent()) {
       throw const PlusApiException(
         'Capture is paused or your account changed. Reopen the guide to continue.',
@@ -726,6 +780,9 @@ class _ApiGuidedCapture extends GuidedCaptureApi {
     Map<String, String>? fields,
   }) async {
     check();
+    final encodedBody = body == null ? null : jsonEncode(body);
+    bytes = bytes == null ? null : Uint8List.fromList(bytes);
+    fields = fields == null ? null : Map.of(fields);
     final headers = await repository._headers();
     check();
     final uri = repository.baseUri.resolve(
@@ -755,7 +812,7 @@ class _ApiGuidedCapture extends GuidedCaptureApi {
       final value = http.Request(method, uri);
       if (body != null) {
         value.headers['Content-Type'] = 'application/json';
-        value.body = jsonEncode(body);
+        value.body = encodedBody!;
       }
       outgoing = value;
     }
@@ -763,25 +820,17 @@ class _ApiGuidedCapture extends GuidedCaptureApi {
     outgoing.followRedirects = false;
     check();
     try {
-      final response = await repository._client
-          .send(outgoing)
-          .timeout(const Duration(seconds: 45));
-      check();
-      final buffer = BytesBuilder(copy: false);
-      await for (final chunk in response.stream.timeout(
-        const Duration(seconds: 8),
-      )) {
-        check();
-        if (buffer.length + chunk.length > 128 * 1024) {
-          throw const PlusApiException(
+      final response = await repository._readResponse(
+        outgoing,
+        timeout: const Duration(seconds: 45),
+        idleTimeout: const Duration(seconds: 8),
+        maxBytes: 128 * 1024,
+        check: check,
+        limitMessage:
             'Capture received an unreadable response. Keep this photo and retry.',
-            502,
-          );
-        }
-        buffer.add(chunk);
-      }
+      );
       check();
-      final raw = utf8.decode(buffer.takeBytes());
+      final raw = utf8.decode(response.bodyBytes);
       Json? decoded;
       try {
         final value = jsonDecode(raw);
@@ -982,6 +1031,7 @@ class _ApiReceiptRecord extends ReceiptApi {
   final String recordId;
   final bool Function() isCurrent;
   void check() {
+    repository._requireOpen();
     if (!isCurrent()) {
       throw const PlusApiException(
         'Your account changed. Reopen your history to continue.',
@@ -998,6 +1048,7 @@ class _ApiReceiptRecord extends ReceiptApi {
     Json? body,
   }) async {
     check();
+    final encodedBody = body == null ? null : jsonEncode(body);
     final headers = await repository._headers();
     check();
     final path =
@@ -1025,7 +1076,7 @@ class _ApiReceiptRecord extends ReceiptApi {
       final jsonRequest = http.Request(method, uri);
       if (body != null) {
         headers['Content-Type'] = 'application/json';
-        jsonRequest.body = jsonEncode(body);
+        jsonRequest.body = encodedBody!;
       }
       outgoing = jsonRequest;
     }
@@ -1033,29 +1084,16 @@ class _ApiReceiptRecord extends ReceiptApi {
     outgoing.followRedirects = false;
     check();
     try {
-      final response = await repository._client
-          .send(outgoing)
-          .timeout(const Duration(seconds: 60));
-      check();
-      final buffer = BytesBuilder(copy: false);
-      await for (final chunk in response.stream.timeout(
-        const Duration(seconds: 15),
-      )) {
-        check();
-        if (buffer.length + chunk.length > maxReceiptBytes) {
-          throw const PlusApiException(
-            'This receipt is too large to open.',
-            413,
-          );
-        }
-        buffer.add(chunk);
-      }
-      check();
-      final result = http.Response.bytes(
-        buffer.takeBytes(),
-        response.statusCode,
-        headers: response.headers,
+      final result = await repository._readResponse(
+        outgoing,
+        timeout: const Duration(seconds: 60),
+        idleTimeout: const Duration(seconds: 15),
+        maxBytes: maxReceiptBytes,
+        check: check,
+        limitStatus: 413,
+        limitMessage: 'This receipt is too large to open.',
       );
+      check();
       if (result.statusCode >= 300) {
         throw PlusApiException(switch (result.statusCode) {
           401 => 'Your session ended. Sign in again to open your receipts.',

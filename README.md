@@ -30,6 +30,11 @@ Open `http://127.0.0.1:4318`. Production customer sessions use the dedicated aut
 
 ## What is in this milestone
 
+The mobile hardening pass adds immediate API shutdown on account changes,
+bounded network reads, immutable in-flight request data, guarded garage/reminder
+actions and safer Estibot/history behavior. See the [mobile hardening audit](docs/qa/2026-10-17-mobile-hardening.md)
+for the reviewed workflows, test evidence and native build boundaries.
+
 The October 17 settings pass adds editable and clearable contact details, saved
 default vehicle/estimate/start-page preferences, explicit reset and discard
 controls, and the existing insights-sharing privacy choice. Concurrent edits

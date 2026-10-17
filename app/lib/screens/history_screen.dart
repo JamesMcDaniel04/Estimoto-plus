@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../domain/models.dart';
+import '../data/repository.dart';
 import '../services/customer_workspace.dart';
 import '../services/estimate_capture.dart';
 import '../state/plus_controller.dart';
@@ -30,7 +31,8 @@ class _HistoryScreenState extends WorkspaceState<HistoryScreen> {
   @override
   PlusController get controller => widget.controller;
   List<Json> records = [];
-  bool loading = true, loaded = false, share = false, pendingRecord = false;
+  bool loading = true, loaded = false, pendingRecord = false;
+  bool? share;
   bool? uncertainPreference;
   int generation = 0;
   ReceiptPending? pendingReceipt;
@@ -103,8 +105,11 @@ class _HistoryScreenState extends WorkspaceState<HistoryScreen> {
       setState(() {
         loaded = true;
         records = rowsOf(data, 'records');
-        share =
-            (data['preferences'] as Map?)?['share_aggregate_insights'] == true;
+        final preferences = data['preferences'];
+        final choice = preferences is Map
+            ? preferences['share_aggregate_insights']
+            : null;
+        share = choice is bool ? choice : null;
         pendingRecord = values[1] != null;
         pendingReceipt = values[2] as ReceiptPending?;
         uncertainPreference = null;
@@ -162,8 +167,14 @@ class _HistoryScreenState extends WorkspaceState<HistoryScreen> {
         'share_aggregate_insights': selected,
       });
       if (active) {
+        final choice = result['share_aggregate_insights'];
+        if (choice is! bool) {
+          throw const PlusApiException(
+            'Your privacy choice could not be confirmed. Retry or refresh.',
+          );
+        }
         setState(() {
-          share = result['share_aggregate_insights'] == true;
+          share = choice;
           uncertainPreference = null;
         });
       }
@@ -469,16 +480,16 @@ class _HistoryScreenState extends WorkspaceState<HistoryScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (!loaded)
+                  if (!loaded || share == null)
                     const Text(
                       'Refresh to load your saved insights-sharing choice.',
                     ),
-                  if (loaded)
+                  if (loaded && share != null)
                     SwitchListTile(
                       key: const Key('insights-consent'),
                       contentPadding: EdgeInsets.zero,
                       title: const Text('Help improve repair insights'),
-                      value: share,
+                      value: share!,
                       onChanged: loading || busy || uncertainPreference != null
                           ? null
                           : preference,

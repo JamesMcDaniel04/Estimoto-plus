@@ -176,5 +176,6 @@ abstract class PlusRepository {
   Future<Json> retryCalendarSync(Json body) => _calendarUnavailable();
   Future<Json> _calendarUnavailable() =>
       throw const PlusApiException('Google Calendar is unavailable.', 503);
+  void invalidateSession() => close();
   void close() {}
 }
